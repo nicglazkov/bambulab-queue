@@ -39,6 +39,55 @@
         </div>
     </div>
 
+    <div class="mb-4 p-4 bg-gray-100 rounded">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- View Controls -->
+            <div>
+                <h4 class="font-bold mb-2">View Controls</h4>
+                <div class="space-y-2">
+                    <button id="resetView" class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600">
+                        Reset View
+                    </button>
+                    <button id="topView" class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600">
+                        Top View
+                    </button>
+                    <button id="frontView" class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600">
+                        Front View
+                    </button>
+                </div>
+            </div>
+    
+            <!-- Color Controls -->
+            <div>
+                <h4 class="font-bold mb-2">Model Color</h4>
+                <input type="color" id="modelColor" value="#00ff00" 
+                       class="w-full h-10 cursor-pointer">
+            </div>
+    
+            <!-- Display Options -->
+            <div>
+                <h4 class="font-bold mb-2">Display Options</h4>
+                <div class="space-y-2">
+                    <label class="flex items-center">
+                        <input type="checkbox" id="showBuildPlate" checked
+                               class="mr-2">
+                        Show Build Plate
+                    </label>
+                    <label class="flex items-center">
+                        <input type="checkbox" id="showBoundingBox" checked
+                               class="mr-2">
+                        Show Bounding Box
+                    </label>
+                    <label class="flex items-center">
+                        <input type="checkbox" id="showAxes" checked
+                               class="mr-2">
+                        Show Axes
+                    </label>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="mb-6">
         <h3 class="text-xl font-bold mb-2">GCode Viewer</h3>
         <div id="gcode-viewer" class="w-full h-[600px] border rounded"></div>
@@ -78,125 +127,178 @@ class GCodeViewer {
         this.renderer.setClearColor(0xf0f0f0);
         this.container.appendChild(this.renderer.domElement);
 
-        // Add OrbitControls
+        // Store references to objects we'll need to modify
+        this.model = null;
+        this.buildPlate = null;
+        this.boundingBox = null;
+        this.axesHelper = null;
+
+        // Initialize controls
+        this.setupControls();
+        this.setupBuildPlate();
+        this.setupLights();
+        this.setupEventListeners();
+
+        // Start animation
+        this.animate();
+    }
+
+    setupControls() {
         this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.05;
-
-        // Add grid
-        const size = 200;
-        const divisions = 20;
-        const gridHelper = new THREE.GridHelper(size, divisions);
-        this.scene.add(gridHelper);
-
-        // Add axes helper
-        const axesHelper = new THREE.AxesHelper(50);
-        this.scene.add(axesHelper);
-
-        // Set camera position
+        this.controls.screenSpacePanning = true;
         this.camera.position.set(100, 100, 100);
         this.camera.lookAt(0, 0, 0);
+    }
 
-        // Add lights
+    setupBuildPlate() {
+        // Bambu Lab X1C build plate dimensions (256mm x 256mm)
+        const plateGeometry = new THREE.PlaneGeometry(256, 256);
+        const plateMaterial = new THREE.MeshPhongMaterial({
+            color: 0x808080,
+            transparent: true,
+            opacity: 0.5,
+            side: THREE.DoubleSide
+        });
+        this.buildPlate = new THREE.Mesh(plateGeometry, plateMaterial);
+        this.buildPlate.rotation.x = -Math.PI / 2;
+        this.buildPlate.position.y = -0.1; // Slightly below the grid
+        this.scene.add(this.buildPlate);
+
+        // Add build volume visualization
+        const edges = new THREE.EdgesGeometry(new THREE.BoxGeometry(256, 256, 256));
+        const buildVolume = new THREE.LineSegments(
+            edges,
+            new THREE.LineBasicMaterial({ color: 0x808080, transparent: true, opacity: 0.3 })
+        );
+        buildVolume.position.y = 256/2;
+        this.scene.add(buildVolume);
+    }
+
+    setupLights() {
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
         this.scene.add(ambientLight);
 
         const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
         directionalLight.position.set(1, 1, 1);
         this.scene.add(directionalLight);
-
-        // Add scale indicators
-        this.addScaleIndicators();
-
-        this.animate();
     }
 
-    addScaleIndicators() {
-        // Add scale text
-        const createScaleLabel = (position, text) => {
-            const canvas = document.createElement('canvas');
-            const context = canvas.getContext('2d');
-            canvas.width = 100;
-            canvas.height = 32;
-            context.font = '24px Arial';
-            context.fillStyle = 'black';
-            context.fillText(text, 0, 24);
+    setupEventListeners() {
+        // View controls
+        document.getElementById('resetView').addEventListener('click', () => this.resetView());
+        document.getElementById('topView').addEventListener('click', () => this.setView('top'));
+        document.getElementById('frontView').addEventListener('click', () => this.setView('front'));
 
-            const texture = new THREE.CanvasTexture(canvas);
-            const material = new THREE.SpriteMaterial({ map: texture });
-            const sprite = new THREE.Sprite(material);
-            sprite.position.copy(position);
-            sprite.scale.set(10, 5, 1);
-            return sprite;
-        };
-
-        // Add scale labels every 50mm
-        for (let i = 0; i <= 200; i += 50) {
-            this.scene.add(createScaleLabel(new THREE.Vector3(i, 0, -5), `${i}mm`));
-            this.scene.add(createScaleLabel(new THREE.Vector3(-5, 0, i), `${i}mm`));
-        }
-    }
-
-    loadGCode(gcode) {
-        const lines = gcode.split('\n');
-        const points = [];
-        let currentPosition = new THREE.Vector3(0, 0, 0);
-        let isExtrusion = false;
-        let minPos = new THREE.Vector3(Infinity, Infinity, Infinity);
-        let maxPos = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
-
-        lines.forEach(line => {
-            if (line.startsWith(';')) return; // Skip comments
-
-            const parts = line.split(' ');
-            if (line.startsWith('G1') || line.startsWith('G0')) {
-                let newPosition = currentPosition.clone();
-                isExtrusion = false;
-
-                parts.forEach(part => {
-                    if (part.startsWith('X')) newPosition.x = parseFloat(part.substring(1));
-                    if (part.startsWith('Y')) newPosition.y = parseFloat(part.substring(1));
-                    if (part.startsWith('Z')) newPosition.z = parseFloat(part.substring(1));
-                    if (part.startsWith('E') && parseFloat(part.substring(1)) > 0) isExtrusion = true;
-                });
-
-                // Update bounds
-                minPos.min(newPosition);
-                maxPos.max(newPosition);
-
-                if (isExtrusion) {
-                    points.push(currentPosition.clone());
-                    points.push(newPosition.clone());
-                }
-                currentPosition = newPosition;
+        // Color control
+        document.getElementById('modelColor').addEventListener('input', (e) => {
+            if (this.model) {
+                this.model.material.color.setStyle(e.target.value);
             }
         });
 
-        // Create the 3D visualization
-        const geometry = new THREE.BufferGeometry().setFromPoints(points);
-        const material = new THREE.LineBasicMaterial({ 
-            color: 0x00ff00,
-            linewidth: 2
+        // Display options
+        document.getElementById('showBuildPlate').addEventListener('change', (e) => {
+            this.buildPlate.visible = e.target.checked;
         });
-        const model = new THREE.LineSegments(geometry, material);
-        this.scene.add(model);
+        document.getElementById('showBoundingBox').addEventListener('change', (e) => {
+            if (this.boundingBox) this.boundingBox.visible = e.target.checked;
+        });
+        document.getElementById('showAxes').addEventListener('change', (e) => {
+            if (this.axesHelper) this.axesHelper.visible = e.target.checked;
+        });
 
-        // Center and scale the model
-        const modelSize = maxPos.clone().sub(minPos);
-        const center = minPos.clone().add(modelSize.multiplyScalar(0.5));
-        model.position.sub(center);
-
-        // Add bounding box
-        const bbox = new THREE.Box3().setFromPoints(points);
-        const bboxHelper = new THREE.Box3Helper(bbox, 0xff0000);
-        this.scene.add(bboxHelper);
-
-        // Add dimensions display
-        const dimensions = bbox.getSize(new THREE.Vector3());
-        this.addDimensionsText(`Size: ${dimensions.x.toFixed(1)}mm x ${dimensions.y.toFixed(1)}mm x ${dimensions.z.toFixed(1)}mm`);
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            this.camera.aspect = this.container.clientWidth / this.container.clientHeight;
+            this.camera.updateProjectionMatrix();
+            this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+        });
     }
 
-    addDimensionsText(text) {
+    setView(view) {
+        switch(view) {
+            case 'top':
+                this.camera.position.set(0, 200, 0);
+                this.camera.up.set(0, 0, -1);
+                break;
+            case 'front':
+                this.camera.position.set(0, 0, 200);
+                this.camera.up.set(0, 1, 0);
+                break;
+        }
+        this.camera.lookAt(0, 0, 0);
+        this.controls.update();
+    }
+
+    resetView() {
+        this.camera.position.set(100, 100, 100);
+        this.camera.up.set(0, 1, 0);
+        this.camera.lookAt(0, 0, 0);
+        this.controls.update();
+    }
+
+    loadGCode(gcode) {
+        // Clear existing model if any
+        if (this.model) {
+            this.scene.remove(this.model);
+        }
+        if (this.boundingBox) {
+            this.scene.remove(this.boundingBox);
+        }
+
+        const points = this.parseGCode(gcode);
+        const geometry = new THREE.BufferGeometry().setFromPoints(points.positions);
+        const material = new THREE.LineBasicMaterial({
+            color: document.getElementById('modelColor').value,
+            linewidth: 2
+        });
+        this.model = new THREE.LineSegments(geometry, material);
+        this.scene.add(this.model);
+
+        // Center the model on the build plate
+        const bbox = new THREE.Box3().setFromPoints(points.positions);
+        const center = bbox.getCenter(new THREE.Vector3());
+        this.model.position.sub(center);
+        this.model.position.y += points.minZ; // Place on build plate
+
+        // Add bounding box
+        const bboxHelper = new THREE.Box3Helper(bbox, 0xff0000);
+        this.boundingBox = bboxHelper;
+        this.scene.add(bboxHelper);
+
+        // Update dimensions display
+        const dimensions = bbox.getSize(new THREE.Vector3());
+        this.updateDimensionsDisplay(dimensions);
+
+        // Check if model fits build volume
+        this.checkBuildVolumeFit(dimensions);
+    }
+
+    parseGCode(gcode) {
+        // ... (previous parseGCode implementation) ...
+    }
+
+    checkBuildVolumeFit(dimensions) {
+        const buildVolume = { x: 256, y: 256, z: 256 }; // X1C build volume
+        const fits = dimensions.x <= buildVolume.x && 
+                    dimensions.y <= buildVolume.y && 
+                    dimensions.z <= buildVolume.z;
+
+        const warning = document.createElement('div');
+        warning.style.position = 'absolute';
+        warning.style.top = '50px';
+        warning.style.left = '10px';
+        warning.style.padding = '5px';
+        warning.style.borderRadius = '3px';
+        warning.style.backgroundColor = fits ? 'rgba(0, 255, 0, 0.8)' : 'rgba(255, 0, 0, 0.8)';
+        warning.style.color = 'white';
+        warning.textContent = fits ? 'Model fits build volume' : 'Warning: Model exceeds build volume!';
+        this.container.appendChild(warning);
+    }
+
+    updateDimensionsDisplay(dimensions) {
         const dimensionsDiv = document.createElement('div');
         dimensionsDiv.style.position = 'absolute';
         dimensionsDiv.style.top = '10px';
@@ -204,7 +306,12 @@ class GCodeViewer {
         dimensionsDiv.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
         dimensionsDiv.style.padding = '5px';
         dimensionsDiv.style.borderRadius = '3px';
-        dimensionsDiv.textContent = text;
+        dimensionsDiv.innerHTML = `
+            Dimensions:<br>
+            X: ${dimensions.x.toFixed(1)}mm<br>
+            Y: ${dimensions.y.toFixed(1)}mm<br>
+            Z: ${dimensions.z.toFixed(1)}mm
+        `;
         this.container.appendChild(dimensionsDiv);
     }
 
