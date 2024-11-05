@@ -43,29 +43,107 @@
         <h3 class="text-xl font-bold mb-2">GCode Viewer</h3>
         <div id="gcode-viewer" class="w-full h-[600px] border rounded"></div>
     </div>
+
+    <!-- GCode preview as text -->
+    <div class="mb-6">
+        <h3 class="text-xl font-bold mb-2">GCode Preview</h3>
+        <pre class="bg-gray-100 p-4 rounded overflow-x-auto max-h-[400px]">{{ gcode_preview }}</pre>
+    </div>
 </div>
 
-<!-- Include GCode Viewer -->
-<script src="https://cdn.jsdelivr.net/npm/@gcode/viewer@3.1.0/dist/gcode-viewer.min.js"></script>
-<script>
-    // Initialize GCode Viewer
-    const viewer = new GCodeViewer.viewer({
-        targetElement: 'gcode-viewer',
-        topLayerColor: 0xff0000,
-        lastSegmentColor: 0x0000ff,
-        buildVolume: {
-            x: 256,
-            y: 256,
-            z: 256
-        }
-    });
+<!-- Include Three.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- Include OrbitControls -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 
-    // Load GCode file
-    fetch("{{ url_for('get_gcode', request_id=print_request.id) }}")
-        .then(response => response.text())
-        .then(gcode => {
-            viewer.renderGCode(gcode);
-        })
-        .catch(error => console.error('Error loading GCode:', error));
+<script>
+class GCodeViewer {
+    constructor(containerId) {
+        this.container = document.getElementById(containerId);
+        this.scene = new THREE.Scene();
+        this.camera = new THREE.PerspectiveCamera(75, this.container.clientWidth / this.container.clientHeight, 0.1, 1000);
+        this.renderer = new THREE.WebGLRenderer();
+        this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+        this.container.appendChild(this.renderer.domElement);
+
+        // Add OrbitControls
+        this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+
+        // Add grid
+        const gridHelper = new THREE.GridHelper(200, 20);
+        this.scene.add(gridHelper);
+
+        // Set camera position
+        this.camera.position.z = 200;
+        this.camera.position.y = 100;
+        this.camera.position.x = 100;
+        this.camera.lookAt(0, 0, 0);
+
+        // Add ambient light
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        this.scene.add(ambientLight);
+
+        // Add directional light
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+        directionalLight.position.set(0, 1, 0);
+        this.scene.add(directionalLight);
+
+        this.animate();
+    }
+
+    animate() {
+        requestAnimationFrame(() => this.animate());
+        this.controls.update();
+        this.renderer.render(this.scene, this.camera);
+    }
+
+    loadGCode(gcode) {
+        // Clear existing geometry
+        this.scene.children.forEach(child => {
+            if (child instanceof THREE.Line) {
+                this.scene.remove(child);
+            }
+        });
+
+        const lines = gcode.split('\n');
+        let currentPosition = new THREE.Vector3(0, 0, 0);
+        const points = [];
+        
+        lines.forEach(line => {
+            const parts = line.split(' ');
+            if (line.startsWith('G1')) { // Only process G1 commands (linear moves)
+                let newPosition = currentPosition.clone();
+                
+                parts.forEach(part => {
+                    if (part.startsWith('X')) newPosition.x = parseFloat(part.substring(1));
+                    if (part.startsWith('Y')) newPosition.y = parseFloat(part.substring(1));
+                    if (part.startsWith('Z')) newPosition.z = parseFloat(part.substring(1));
+                });
+
+                points.push(currentPosition.clone());
+                points.push(newPosition.clone());
+                currentPosition = newPosition;
+            }
+        });
+
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const material = new THREE.LineBasicMaterial({ color: 0x00ff00 });
+        const line = new THREE.LineSegments(geometry, material);
+        this.scene.add(line);
+    }
+}
+
+
+document.addEventListener('DOMContentLoaded', function() {
+        const viewer = new GCodeViewer('gcode-viewer');
+
+        // Update the fetch URL to use the correct route
+        fetch("{{ url_for('get_gcode', request_id=print_request.id) }}")
+            .then(response => response.text())
+            .then(gcode => {
+                viewer.loadGCode(gcode);
+            })
+            .catch(error => console.error('Error loading GCode:', error));
+    });
 </script>
 {% endblock %}

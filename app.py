@@ -1,4 +1,13 @@
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import (
+    Flask,
+    render_template,
+    request,
+    redirect,
+    url_for,
+    flash,
+    send_file,
+    make_response,
+)
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
     LoginManager,
@@ -13,7 +22,6 @@ from werkzeug.utils import secure_filename
 import os
 import re
 from datetime import datetime
-from flask import send_file
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "your-secret-key-here"  # Change this to a secure secret key
@@ -116,7 +124,7 @@ def validate_password(password):
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    return db.session.get(User, int(user_id))
 
 
 def allowed_file(filename):
@@ -270,26 +278,6 @@ def submit_print():
     return render_template("submit.html")
 
 
-@app.route("/request/<int:request_id>")
-@login_required
-def view_request(request_id):
-    print_request = PrintRequest.query.get_or_404(request_id)
-    if not current_user.is_admin and print_request.user_id != current_user.id:
-        flash("Unauthorized")
-        return redirect(url_for("dashboard"))
-
-    # Read first few lines of gcode for preview
-    try:
-        with open(print_request.filepath, "r") as file:
-            gcode_preview = file.readlines()[:100]  # First 100 lines
-    except:
-        gcode_preview = ["Unable to load gcode preview"]
-
-    return render_template(
-        "view_request.html", print_request=print_request, gcode_preview=gcode_preview
-    )
-
-
 @app.route("/approve/<int:request_id>")
 @login_required
 def approve_print(request_id):
@@ -318,7 +306,26 @@ def deny_print(request_id):
     return redirect(url_for("dashboard"))
 
 
-@app.route("/gcode/<int:request_id>")
+@app.route("/gcode/download/<int:request_id>")
+@login_required
+def download_gcode(request_id):
+    print_request = PrintRequest.query.get_or_404(request_id)
+    if not current_user.is_admin and print_request.user_id != current_user.id:
+        flash("Unauthorized")
+        return redirect(url_for("dashboard"))
+
+    try:
+        return send_file(
+            print_request.filepath,
+            as_attachment=True,
+            download_name=print_request.filename,
+        )
+    except Exception as e:
+        flash(f"Error downloading file: {str(e)}")
+        return redirect(url_for("view_request", request_id=request_id))
+
+
+@app.route("/gcode/view/<int:request_id>")
 @login_required
 def get_gcode(request_id):
     print_request = PrintRequest.query.get_or_404(request_id)
@@ -327,21 +334,30 @@ def get_gcode(request_id):
 
     try:
         with open(print_request.filepath, "r") as file:
-            return file.read()
-    except:
-        return "Error reading file", 500
+            response = make_response(file.read())
+            response.headers["Content-Type"] = "text/plain"
+            return response
+    except Exception as e:
+        return f"Error reading file: {str(e)}", 500
 
 
-@app.route("/download/<int:request_id>")
+@app.route("/request/<int:request_id>")
 @login_required
-def download_gcode(request_id):
+def view_request(request_id):
     print_request = PrintRequest.query.get_or_404(request_id)
     if not current_user.is_admin and print_request.user_id != current_user.id:
         flash("Unauthorized")
         return redirect(url_for("dashboard"))
 
-    return send_file(
-        print_request.filepath, as_attachment=True, download_name=print_request.filename
+    # Read first few lines of gcode for preview
+    try:
+        with open(print_request.filepath, "r") as file:
+            gcode_preview = "".join(file.readlines()[:100])  # First 100 lines
+    except Exception as e:
+        gcode_preview = f"Unable to load gcode preview: {str(e)}"
+
+    return render_template(
+        "view_request.html", print_request=print_request, gcode_preview=gcode_preview
     )
 
 
