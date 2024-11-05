@@ -13,6 +13,7 @@ from werkzeug.utils import secure_filename
 import os
 import re
 from datetime import datetime
+from flask import send_file
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "your-secret-key-here"  # Change this to a secure secret key
@@ -315,6 +316,83 @@ def deny_print(request_id):
     db.session.commit()
     flash("Print request denied")
     return redirect(url_for("dashboard"))
+
+
+@app.route("/gcode/<int:request_id>")
+@login_required
+def get_gcode(request_id):
+    print_request = PrintRequest.query.get_or_404(request_id)
+    if not current_user.is_admin and print_request.user_id != current_user.id:
+        return "Unauthorized", 403
+
+    try:
+        with open(print_request.filepath, "r") as file:
+            return file.read()
+    except:
+        return "Error reading file", 500
+
+
+@app.route("/download/<int:request_id>")
+@login_required
+def download_gcode(request_id):
+    print_request = PrintRequest.query.get_or_404(request_id)
+    if not current_user.is_admin and print_request.user_id != current_user.id:
+        flash("Unauthorized")
+        return redirect(url_for("dashboard"))
+
+    return send_file(
+        print_request.filepath, as_attachment=True, download_name=print_request.filename
+    )
+
+
+@app.route("/manage/users")
+@login_required
+def manage_users():
+    if not current_user.is_admin:
+        flash("Unauthorized")
+        return redirect(url_for("dashboard"))
+
+    users = User.query.all()
+    return render_template("manage_users.html", users=users)
+
+
+@app.route("/manage/users/<int:user_id>/toggle-admin", methods=["POST"])
+@login_required
+def toggle_admin(user_id):
+    if not current_user.is_admin:
+        flash("Unauthorized")
+        return redirect(url_for("dashboard"))
+
+    user = User.query.get_or_404(user_id)
+    if user.id != current_user.id:  # Prevent admin from removing their own admin status
+        user.is_admin = not user.is_admin
+        db.session.commit()
+        flash(f"Admin status updated for {user.username}")
+
+    return redirect(url_for("manage_users"))
+
+
+@app.route("/manage/users/<int:user_id>/delete", methods=["POST"])
+@login_required
+def delete_user(user_id):
+    if not current_user.is_admin:
+        flash("Unauthorized")
+        return redirect(url_for("dashboard"))
+
+    user = User.query.get_or_404(user_id)
+    if user.id != current_user.id:  # Prevent admin from deleting themselves
+        # Delete associated print requests and files
+        for print_request in user.print_requests:
+            try:
+                os.remove(print_request.filepath)
+            except:
+                pass
+
+        db.session.delete(user)
+        db.session.commit()
+        flash(f"User {user.username} deleted")
+
+    return redirect(url_for("manage_users"))
 
 
 @app.cli.command("create-admin")

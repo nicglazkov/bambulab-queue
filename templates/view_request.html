@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="bg-white p-6 rounded shadow">
+    <div class="mb-6">
+        <h2 class="text-2xl font-bold">Print Request Details</h2>
+        <p class="text-gray-600">Submitted by: {{ print_request.user.username }}</p>
+        <p class="text-gray-600">Status: {{ print_request.status }}</p>
+        <p class="text-gray-600">Submitted: {{ print_request.timestamp.strftime('%Y-%m-%d %H:%M') }}</p>
+    </div>
+
+    <div class="mb-6">
+        <h3 class="text-xl font-bold mb-2">Print Information</h3>
+        <p>Estimated Time: {{ print_request.estimated_time }} minutes</p>
+        <p>Material Type: {{ print_request.material_type }}</p>
+        <p>Material Amount: {{ print_request.material_amount }}g</p>
+        <p>Layer Height: {{ print_request.layer_height }}mm</p>
+        {% if print_request.notes %}
+        <p>Notes: {{ print_request.notes }}</p>
+        {% endif %}
+    </div>
+
+    <div class="mb-6">
+        <h3 class="text-xl font-bold mb-2">Actions</h3>
+        <div class="space-x-4">
+            <a href="{{ url_for('download_gcode', request_id=print_request.id) }}" 
+               class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+                Download GCode
+            </a>
+            {% if current_user.is_admin and print_request.status == 'pending' %}
+            <a href="{{ url_for('approve_print', request_id=print_request.id) }}"
+               class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
+                Approve
+            </a>
+            <a href="{{ url_for('deny_print', request_id=print_request.id) }}"
+               class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">
+                Deny
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="mb-6">
+        <h3 class="text-xl font-bold mb-2">GCode Viewer</h3>
+        <div id="gcode-viewer" class="w-full h-[600px] border rounded"></div>
+    </div>
+</div>
+
+<!-- Include GCode Viewer -->
+<script src="https://cdn.jsdelivr.net/npm/@gcode/viewer@3.1.0/dist/gcode-viewer.min.js"></script>
+<script>
+    // Initialize GCode Viewer
+    const viewer = new GCodeViewer.viewer({
+        targetElement: 'gcode-viewer',
+        topLayerColor: 0xff0000,
+        lastSegmentColor: 0x0000ff,
+        buildVolume: {
+            x: 256,
+            y: 256,
+            z: 256
+        }
+    });
+
+    // Load GCode file
+    fetch("{{ url_for('get_gcode', request_id=print_request.id) }}")
+        .then(response => response.text())
+        .then(gcode => {
+            viewer.renderGCode(gcode);
+        })
+        .catch(error => console.error('Error loading GCode:', error));
+</script>
+{% endblock %}
