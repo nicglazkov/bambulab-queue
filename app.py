@@ -53,6 +53,47 @@ class PrintRequest(db.Model):
     layer_height = db.Column(db.Float)
 
 
+def extract_gcode_info(filepath):
+    """Extract print information from gcode file"""
+    info = {
+        "estimated_time": 0,
+        "material_type": "Unknown",
+        "material_amount": 0.0,
+        "layer_height": 0.0,
+    }
+
+    try:
+        with open(filepath, "r") as file:
+            content = file.read()
+
+            # Extract print time (looking for specific Bambu Lab format)
+            time_match = re.search(
+                r"estimated printing time \(normal mode\) = (\d+)m", content
+            )
+            if time_match:
+                info["estimated_time"] = int(time_match.group(1))
+
+            # Extract filament type
+            material_match = re.search(r"filament_type = (.+)", content)
+            if material_match:
+                info["material_type"] = material_match.group(1)
+
+            # Extract filament weight
+            weight_match = re.search(r"total filament used \[g\] = ([\d.]+)", content)
+            if weight_match:
+                info["material_amount"] = float(weight_match.group(1))
+
+            # Extract layer height
+            layer_match = re.search(r"layer_height = ([\d.]+)", content)
+            if layer_match:
+                info["layer_height"] = float(layer_match.group(1))
+
+    except Exception as e:
+        print(f"Error parsing gcode: {e}")
+
+    return info
+
+
 def validate_password(password):
     """
     Password must:
@@ -182,6 +223,98 @@ def dashboard():
             .all()
         )
     return render_template("dashboard.html", print_requests=print_requests)
+
+
+@app.route("/submit", methods=["GET", "POST"])
+@login_required
+def submit_print():
+    if request.method == "POST":
+        if "file" not in request.files:
+            flash("No file part")
+            return redirect(request.url)
+
+        file = request.files["file"]
+        if file.filename == "":
+            flash("No selected file")
+            return redirect(request.url)
+
+        if file and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+            file.save(filepath)
+
+            # Extract gcode information
+            gcode_info = extract_gcode_info(filepath)
+
+            print_request = PrintRequest(
+                filename=filename,
+                filepath=filepath,
+                user_id=current_user.id,
+                notes=request.form.get("notes", ""),
+                estimated_time=gcode_info["estimated_time"],
+                material_type=gcode_info["material_type"],
+                material_amount=gcode_info["material_amount"],
+                layer_height=gcode_info["layer_height"],
+            )
+
+            db.session.add(print_request)
+            db.session.commit()
+
+            flash("Print request submitted successfully")
+            return redirect(url_for("dashboard"))
+        else:
+            flash("Only .gcode files are allowed")
+            return redirect(request.url)
+
+    return render_template("submit.html")
+
+
+@app.route("/request/<int:request_id>")
+@login_required
+def view_request(request_id):
+    print_request = PrintRequest.query.get_or_404(request_id)
+    if not current_user.is_admin and print_request.user_id != current_user.id:
+        flash("Unauthorized")
+        return redirect(url_for("dashboard"))
+
+    # Read first few lines of gcode for preview
+    try:
+        with open(print_request.filepath, "r") as file:
+            gcode_preview = file.readlines()[:100]  # First 100 lines
+    except:
+        gcode_preview = ["Unable to load gcode preview"]
+
+    return render_template(
+        "view_request.html", print_request=print_request, gcode_preview=gcode_preview
+    )
+
+
+@app.route("/approve/<int:request_id>")
+@login_required
+def approve_print(request_id):
+    if not current_user.is_admin:
+        flash("Unauthorized")
+        return redirect(url_for("dashboard"))
+
+    print_request = PrintRequest.query.get_or_404(request_id)
+    print_request.status = "approved"
+    db.session.commit()
+    flash("Print request approved")
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/deny/<int:request_id>")
+@login_required
+def deny_print(request_id):
+    if not current_user.is_admin:
+        flash("Unauthorized")
+        return redirect(url_for("dashboard"))
+
+    print_request = PrintRequest.query.get_or_404(request_id)
+    print_request.status = "denied"
+    db.session.commit()
+    flash("Print request denied")
+    return redirect(url_for("dashboard"))
 
 
 @app.cli.command("create-admin")

@@ -130,3 +130,7 @@ dist
 .pnp.*
 repomix-output.txt
 __pycache__/app.cpython-312.pyc
+
+# uploads
+uploads/
+instance/print_requests.db
