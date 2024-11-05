@@ -118,7 +118,12 @@
             this.container = document.getElementById(containerId);
             this.scene = new THREE.Scene();
             this.camera = new THREE.PerspectiveCamera(75, this.container.clientWidth / this.container.clientHeight, 0.1, 1000);
-            this.renderer = new THREE.WebGLRenderer({ antialias: true });
+            this.renderer = new THREE.WebGLRenderer({
+                antialias: true,
+                alpha: true
+            });
+            this.renderer.shadowMap.enabled = true;
+            this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
             this.renderer.setClearColor(0xf0f0f0);
             this.container.appendChild(this.renderer.domElement);
@@ -146,17 +151,21 @@
             this.controls.enableDamping = true;
             this.controls.dampingFactor = 0.05;
             this.controls.screenSpacePanning = true;
+            this.controls.mouseButtons = {
+                LEFT: THREE.MOUSE.ROTATE,
+                MIDDLE: THREE.MOUSE.PAN,
+                RIGHT: THREE.MOUSE.DOLLY
+            };
+            this.controls.touches = {
+                ONE: THREE.TOUCH.ROTATE,
+                TWO: THREE.TOUCH.DOLLY_PAN
+            };
+            this.controls.minDistance = 10;
+            this.controls.maxDistance = 1000;
+            this.controls.maxPolarAngle = Math.PI / 2;
+
             this.camera.position.set(100, 100, 100);
             this.camera.lookAt(0, 0, 0);
-        }
-
-        setupLights() {
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-            this.scene.add(ambientLight);
-
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            directionalLight.position.set(1, 1, 1);
-            this.scene.add(directionalLight);
         }
 
         setupEventListeners() {
@@ -240,6 +249,7 @@
         setModelColor(color) {
             if (this.model) {
                 this.model.material.color.setStyle(color);
+                this.model.material.needsUpdate = true;
             }
         }
 
@@ -273,19 +283,44 @@
             const grid = new THREE.LineSegments(gridGeometry, gridMaterial);
             this.scene.add(grid);
         }
-
         setupLights() {
-            // Add multiple lights for better visibility
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            // Ambient light
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
             this.scene.add(ambientLight);
 
-            const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
-            directionalLight1.position.set(1, 1, 1);
-            this.scene.add(directionalLight1);
+            // Main directional light
+            const mainLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            mainLight.position.set(1, 2, 1);
+            mainLight.castShadow = true;
+            this.scene.add(mainLight);
 
-            const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.5);
-            directionalLight2.position.set(-1, -1, -1);
-            this.scene.add(directionalLight2);
+            // Fill light
+            const fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
+            fillLight.position.set(-1, 1, -1);
+            this.scene.add(fillLight);
+
+            // Rim light
+            const rimLight = new THREE.DirectionalLight(0xffffff, 0.2);
+            rimLight.position.set(0, -1, 0);
+            this.scene.add(rimLight);
+        }
+
+        setupEnvironment() {
+            // Add this method to the class and call it from constructor
+            const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
+            pmremGenerator.compileEquirectangularShader();
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            this.scene.add(ambientLight);
+
+            // Create a simple environment map
+            const cubeTextureLoader = new THREE.CubeTextureLoader();
+            const envMap = cubeTextureLoader.load([
+                'px.jpg', 'nx.jpg',
+                'py.jpg', 'ny.jpg',
+                'pz.jpg', 'nz.jpg'
+            ]);
+            this.scene.environment = envMap;
         }
 
         loadGCode(gcode) {
@@ -302,14 +337,25 @@
             // Create geometry from positions
             const geometry = new THREE.BufferGeometry().setFromPoints(positions);
 
-            // Create material
-            const material = new THREE.LineBasicMaterial({
+            // Create a tube geometry along the gcode path
+            const tubeGeometry = new THREE.TubeGeometry(
+                new THREE.CatmullRomCurve3(positions),
+                positions.length,
+                0.2, // radius
+                8,   // tubular segments
+                false // closed
+            );
+
+            // Create material with phong shading
+            const material = new THREE.MeshPhongMaterial({
                 color: 0x00ff00,
-                linewidth: 1
+                specular: 0x111111,
+                shininess: 30,
+                flatShading: false
             });
 
             // Create the model
-            this.model = new THREE.LineSegments(geometry, material);
+            this.model = new THREE.Mesh(tubeGeometry, material);
 
             // Calculate bounding box
             const bbox = new THREE.Box3().setFromPoints(positions);
