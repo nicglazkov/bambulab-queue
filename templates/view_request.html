@@ -138,6 +138,8 @@ class GCodeViewer {
         this.setupBuildPlate();
         this.setupLights();
         this.setupEventListeners();
+        this.addGrid();
+        this.addAxes();
 
         // Start animation
         this.animate();
@@ -233,10 +235,66 @@ class GCodeViewer {
     }
 
     resetView() {
-        this.camera.position.set(100, 100, 100);
-        this.camera.up.set(0, 1, 0);
-        this.camera.lookAt(0, 0, 0);
+        if (this.model) {
+            // Calculate the bounding sphere of the model
+            const bbox = new THREE.Box3().setFromObject(this.model);
+            const center = bbox.getCenter(new THREE.Vector3());
+            const size = bbox.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            
+            // Position camera to see the entire model
+            this.camera.position.set(
+                center.x + maxDim * 1.5,
+                center.y + maxDim * 1.5,
+                center.z + maxDim * 1.5
+            );
+            this.camera.lookAt(center);
+            this.camera.up.set(0, 1, 0);
+        } else {
+            // Default position if no model is loaded
+            this.camera.position.set(100, 100, 100);
+            this.camera.lookAt(0, 0, 0);
+            this.camera.up.set(0, 1, 0);
+        }
+        
+        this.controls.target.set(0, 0, 0);
         this.controls.update();
+    }
+
+        // Handle color changes
+        setModelColor(color) {
+        if (this.model) {
+            this.model.material.color.setStyle(color);
+        }
+    }
+
+    addAxes() {
+    // Add axes helper
+    this.axesHelper = new THREE.AxesHelper(50);
+    this.scene.add(this.axesHelper);
+    }
+
+    addGrid() {
+        // Add grid helper
+        const size = 256; // Match build plate size
+        const divisions = 20;
+        const gridHelper = new THREE.GridHelper(size, divisions);
+        gridHelper.rotation.x = Math.PI / 2;
+        this.scene.add(gridHelper);
+    }
+
+    setupLights() {
+        // Add multiple lights for better visibility
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        this.scene.add(ambientLight);
+
+        const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight1.position.set(1, 1, 1);
+        this.scene.add(directionalLight1);
+
+        const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.5);
+        directionalLight2.position.set(-1, -1, -1);
+        this.scene.add(directionalLight2);
     }
 
     loadGCode(gcode) {
@@ -248,36 +306,85 @@ class GCodeViewer {
             this.scene.remove(this.boundingBox);
         }
 
-        const points = this.parseGCode(gcode);
-        const geometry = new THREE.BufferGeometry().setFromPoints(points.positions);
+        const { positions, minZ } = this.parseGCode(gcode);
+
+        // Create geometry from positions
+        const geometry = new THREE.BufferGeometry().setFromPoints(positions);
+        
+        // Create material with larger linewidth and initial color
         const material = new THREE.LineBasicMaterial({
-            color: document.getElementById('modelColor').value,
-            linewidth: 2
+            color: 0x00ff00, // Default green color
+            linewidth: 1 // Note: linewidth > 1 might not work in WebGL
         });
+
+        // Create the model
         this.model = new THREE.LineSegments(geometry, material);
-        this.scene.add(this.model);
+        
+        // Calculate bounding box before adding to scene
+        const bbox = new THREE.Box3().setFromPoints(positions);
+        const center = bbox.getCenter(new THREE.Vector3());
+        const dimensions = bbox.getSize(new THREE.Vector3());
 
         // Center the model on the build plate
-        const bbox = new THREE.Box3().setFromPoints(points.positions);
-        const center = bbox.getCenter(new THREE.Vector3());
         this.model.position.sub(center);
-        this.model.position.y += points.minZ; // Place on build plate
+        this.model.position.y -= minZ; // Align with build plate
+
+        // Add model to scene
+        this.scene.add(this.model);
 
         // Add bounding box
-        const bboxHelper = new THREE.Box3Helper(bbox, 0xff0000);
-        this.boundingBox = bboxHelper;
-        this.scene.add(bboxHelper);
+        this.boundingBox = new THREE.Box3Helper(bbox, 0xff0000);
+        this.scene.add(this.boundingBox);
 
         // Update dimensions display
-        const dimensions = bbox.getSize(new THREE.Vector3());
         this.updateDimensionsDisplay(dimensions);
 
         // Check if model fits build volume
         this.checkBuildVolumeFit(dimensions);
+
+        // Reset view to show the entire model
+        this.resetView();
     }
 
     parseGCode(gcode) {
-        // ... (previous parseGCode implementation) ...
+        const lines = gcode.split('\n');
+        const positions = [];
+        let currentPosition = new THREE.Vector3(0, 0, 0);
+        let minZ = Infinity;
+
+        lines.forEach(line => {
+            if (line.startsWith(';')) return; // Skip comments
+
+            const parts = line.split(' ');
+            if (line.startsWith('G1') || line.startsWith('G0')) {
+                let newPosition = currentPosition.clone();
+                let hasMove = false;
+
+                parts.forEach(part => {
+                    if (part.startsWith('X')) {
+                        newPosition.x = parseFloat(part.substring(1));
+                        hasMove = true;
+                    }
+                    if (part.startsWith('Y')) {
+                        newPosition.y = parseFloat(part.substring(1));
+                        hasMove = true;
+                    }
+                    if (part.startsWith('Z')) {
+                        newPosition.z = parseFloat(part.substring(1));
+                        minZ = Math.min(minZ, newPosition.z);
+                        hasMove = true;
+                    }
+                });
+
+                if (hasMove) {
+                    positions.push(currentPosition.clone());
+                    positions.push(newPosition.clone());
+                    currentPosition = newPosition;
+                }
+            }
+        });
+
+        return { positions, minZ: minZ === Infinity ? 0 : minZ };
     }
 
     checkBuildVolumeFit(dimensions) {
