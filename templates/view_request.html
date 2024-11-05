@@ -250,14 +250,28 @@
         }
 
         addGrid() {
-            // Add grid helper
-            const size = 256; // Match build plate size
+            // Create a custom grid using lines
+            const size = 256;
             const divisions = 20;
-            const gridHelper = new THREE.GridHelper(size, divisions);
-            gridHelper.rotation.x = -Math.PI / 2; // Rotate to match build plate
-            gridHelper.position.x = 256 / 2;
-            gridHelper.position.z = 256 / 2;
-            this.scene.add(gridHelper);
+            const step = size / divisions;
+            const gridGeometry = new THREE.BufferGeometry();
+            const gridMaterial = new THREE.LineBasicMaterial({ color: 0x808080 });
+            const vertices = [];
+
+            // Create grid lines
+            for (let i = 0; i <= divisions; i++) {
+                const pos = i * step;
+                // Lines along X axis
+                vertices.push(0, 0, pos);
+                vertices.push(size, 0, pos);
+                // Lines along Z axis
+                vertices.push(pos, 0, 0);
+                vertices.push(pos, 0, size);
+            }
+
+            gridGeometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            const grid = new THREE.LineSegments(gridGeometry, gridMaterial);
+            this.scene.add(grid);
         }
 
         setupLights() {
