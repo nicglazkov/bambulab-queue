@@ -302,9 +302,9 @@
             // Create geometry from positions
             const geometry = new THREE.BufferGeometry().setFromPoints(positions);
 
-            // Create material with larger linewidth and initial color
+            // Create material
             const material = new THREE.LineBasicMaterial({
-                color: 0x00ff00, // Default green color
+                color: 0x00ff00,
                 linewidth: 1
             });
 
@@ -314,16 +314,12 @@
             // Calculate bounding box
             const bbox = new THREE.Box3().setFromPoints(positions);
             const dimensions = bbox.getSize(new THREE.Vector3());
-
-            // Place model at origin (bottom-left corner)
-            this.model.position.y = 0; // Place on build plate
-            this.model.position.x = 0;
-            this.model.position.z = 0;
+            const center = bbox.getCenter(new THREE.Vector3());
 
             // Add model to scene
             this.scene.add(this.model);
 
-            // Create and position bounding box
+            // Create bounding box
             const bboxGeometry = new THREE.BoxGeometry(
                 dimensions.x,
                 dimensions.y,
@@ -338,12 +334,8 @@
                 bboxMaterial
             );
 
-            // Position bounding box relative to model
-            this.boundingBox.position.set(
-                dimensions.x / 2,
-                dimensions.y / 2,
-                dimensions.z / 2
-            );
+            // Position bounding box to match model's position
+            this.boundingBox.position.copy(center);
 
             this.scene.add(this.boundingBox);
 
@@ -351,27 +343,33 @@
             this.updateDimensionsDisplay(dimensions);
 
             // Check if model fits build volume
-            this.checkBuildVolumeFit(dimensions);
+            this.checkBuildVolumeFit(dimensions, center);
 
             // Reset view to show the entire model
             this.resetView();
         }
 
         parseGCode(gcode) {
-            const lines = gcode.split('\n');
             const positions = [];
             let currentPosition = new THREE.Vector3(0, 0, 0);
             let minZ = Infinity;
+            let isPrinting = false;
 
-            lines.forEach(line => {
-                if (line.startsWith(';')) return; // Skip comments
+            const lines = gcode.split('\n');
+            for (const line of lines) {
+                // Skip comments and empty lines
+                if (line.startsWith(';') || !line.trim()) {
+                    continue;
+                }
 
-                const parts = line.split(' ');
-                if (line.startsWith('G1') || line.startsWith('G0')) {
+                // Look for actual printing moves (G1/G0 with extrusion)
+                if ((line.startsWith('G0') || line.startsWith('G1'))) {
+                    const parts = line.split(' ');
                     let newPosition = currentPosition.clone();
                     let hasMove = false;
+                    let hasExtrusion = false;
 
-                    parts.forEach(part => {
+                    for (const part of parts) {
                         if (part.startsWith('X')) {
                             newPosition.x = parseFloat(part.substring(1));
                             hasMove = true;
@@ -385,15 +383,22 @@
                             minZ = Math.min(minZ, newPosition.y);
                             hasMove = true;
                         }
-                    });
+                        if (part.startsWith('E') && parseFloat(part.substring(1)) > 0) {
+                            hasExtrusion = true;
+                        }
+                    }
 
-                    if (hasMove) {
+                    // Only add positions for moves that involve extrusion
+                    if (hasMove && hasExtrusion) {
                         positions.push(currentPosition.clone());
                         positions.push(newPosition.clone());
                         currentPosition = newPosition;
+                    } else if (hasMove && !hasExtrusion) {
+                        // For non-extrusion moves, just update position without adding to visualization
+                        currentPosition = newPosition;
                     }
                 }
-            });
+            }
 
             return { positions, minZ: minZ === Infinity ? 0 : minZ };
         }
@@ -429,11 +434,16 @@
             this.scene.add(buildVolume);
         }
 
-        checkBuildVolumeFit(dimensions) {
+        checkBuildVolumeFit(dimensions, center) {
             const buildVolume = { x: 256, y: 256, z: 256 }; // X1C build volume
-            const fits = dimensions.x <= buildVolume.x &&
-                dimensions.y <= buildVolume.y &&
-                dimensions.z <= buildVolume.z;
+
+            // Check if the model extends beyond build volume in any direction
+            const fits = (center.x - dimensions.x / 2 >= 0) &&
+                (center.x + dimensions.x / 2 <= buildVolume.x) &&
+                (center.y - dimensions.y / 2 >= 0) &&
+                (center.y + dimensions.y / 2 <= buildVolume.y) &&
+                (center.z - dimensions.z / 2 >= 0) &&
+                (center.z + dimensions.z / 2 <= buildVolume.z);
 
             const warning = document.createElement('div');
             warning.style.position = 'absolute';
