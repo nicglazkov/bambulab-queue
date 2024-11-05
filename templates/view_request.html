@@ -22,17 +22,17 @@
     <div class="mb-6">
         <h3 class="text-xl font-bold mb-2">Actions</h3>
         <div class="space-x-4">
-            <a href="{{ url_for('download_gcode', request_id=print_request.id) }}" 
-               class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+            <a href="{{ url_for('download_gcode', request_id=print_request.id) }}"
+                class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
                 Download GCode
             </a>
             {% if current_user.is_admin and print_request.status == 'pending' %}
             <a href="{{ url_for('approve_print', request_id=print_request.id) }}"
-               class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
+                class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
                 Approve
             </a>
             <a href="{{ url_for('deny_print', request_id=print_request.id) }}"
-               class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">
+                class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">
                 Deny
             </a>
             {% endif %}
@@ -56,31 +56,27 @@
                     </button>
                 </div>
             </div>
-    
+
             <!-- Color Controls -->
             <div>
                 <h4 class="font-bold mb-2">Model Color</h4>
-                <input type="color" id="modelColor" value="#00ff00" 
-                       class="w-full h-10 cursor-pointer">
+                <input type="color" id="modelColor" value="#00ff00" class="w-full h-10 cursor-pointer">
             </div>
-    
+
             <!-- Display Options -->
             <div>
                 <h4 class="font-bold mb-2">Display Options</h4>
                 <div class="space-y-2">
                     <label class="flex items-center">
-                        <input type="checkbox" id="showBuildPlate" checked
-                               class="mr-2">
+                        <input type="checkbox" id="showBuildPlate" checked class="mr-2">
                         Show Build Plate
                     </label>
                     <label class="flex items-center">
-                        <input type="checkbox" id="showBoundingBox" checked
-                               class="mr-2">
+                        <input type="checkbox" id="showBoundingBox" checked class="mr-2">
                         Show Bounding Box
                     </label>
                     <label class="flex items-center">
-                        <input type="checkbox" id="showAxes" checked
-                               class="mr-2">
+                        <input type="checkbox" id="showAxes" checked class="mr-2">
                         Show Axes
                     </label>
                 </div>
@@ -117,320 +113,352 @@
 </style>
 
 <script>
-class GCodeViewer {
-    constructor(containerId) {
-        this.container = document.getElementById(containerId);
-        this.scene = new THREE.Scene();
-        this.camera = new THREE.PerspectiveCamera(75, this.container.clientWidth / this.container.clientHeight, 0.1, 1000);
-        this.renderer = new THREE.WebGLRenderer({ antialias: true });
-        this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
-        this.renderer.setClearColor(0xf0f0f0);
-        this.container.appendChild(this.renderer.domElement);
-
-        // Store references to objects we'll need to modify
-        this.model = null;
-        this.buildPlate = null;
-        this.boundingBox = null;
-        this.axesHelper = null;
-
-        // Initialize controls
-        this.setupControls();
-        this.setupBuildPlate();
-        this.setupLights();
-        this.setupEventListeners();
-        this.addGrid();
-        this.addAxes();
-
-        // Start animation
-        this.animate();
-    }
-
-    setupControls() {
-        this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
-        this.controls.enableDamping = true;
-        this.controls.dampingFactor = 0.05;
-        this.controls.screenSpacePanning = true;
-        this.camera.position.set(100, 100, 100);
-        this.camera.lookAt(0, 0, 0);
-    }
-
-    setupBuildPlate() {
-        // Bambu Lab X1C build plate dimensions (256mm x 256mm)
-        const plateGeometry = new THREE.PlaneGeometry(256, 256);
-        const plateMaterial = new THREE.MeshPhongMaterial({
-            color: 0x808080,
-            transparent: true,
-            opacity: 0.5,
-            side: THREE.DoubleSide
-        });
-        this.buildPlate = new THREE.Mesh(plateGeometry, plateMaterial);
-        this.buildPlate.rotation.x = -Math.PI / 2;
-        this.buildPlate.position.y = -0.1; // Slightly below the grid
-        this.scene.add(this.buildPlate);
-
-        // Add build volume visualization
-        const edges = new THREE.EdgesGeometry(new THREE.BoxGeometry(256, 256, 256));
-        const buildVolume = new THREE.LineSegments(
-            edges,
-            new THREE.LineBasicMaterial({ color: 0x808080, transparent: true, opacity: 0.3 })
-        );
-        buildVolume.position.y = 256/2;
-        this.scene.add(buildVolume);
-    }
-
-    setupLights() {
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-        this.scene.add(ambientLight);
-
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        directionalLight.position.set(1, 1, 1);
-        this.scene.add(directionalLight);
-    }
-
-    setupEventListeners() {
-        // View controls
-        document.getElementById('resetView').addEventListener('click', () => this.resetView());
-        document.getElementById('topView').addEventListener('click', () => this.setView('top'));
-        document.getElementById('frontView').addEventListener('click', () => this.setView('front'));
-
-        // Color control
-        document.getElementById('modelColor').addEventListener('input', (e) => {
-            if (this.model) {
-                this.model.material.color.setStyle(e.target.value);
-            }
-        });
-
-        // Display options
-        document.getElementById('showBuildPlate').addEventListener('change', (e) => {
-            this.buildPlate.visible = e.target.checked;
-        });
-        document.getElementById('showBoundingBox').addEventListener('change', (e) => {
-            if (this.boundingBox) this.boundingBox.visible = e.target.checked;
-        });
-        document.getElementById('showAxes').addEventListener('change', (e) => {
-            if (this.axesHelper) this.axesHelper.visible = e.target.checked;
-        });
-
-        // Handle window resize
-        window.addEventListener('resize', () => {
-            this.camera.aspect = this.container.clientWidth / this.container.clientHeight;
-            this.camera.updateProjectionMatrix();
+    class GCodeViewer {
+        constructor(containerId) {
+            this.container = document.getElementById(containerId);
+            this.scene = new THREE.Scene();
+            this.camera = new THREE.PerspectiveCamera(75, this.container.clientWidth / this.container.clientHeight, 0.1, 1000);
+            this.renderer = new THREE.WebGLRenderer({ antialias: true });
             this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
-        });
-    }
+            this.renderer.setClearColor(0xf0f0f0);
+            this.container.appendChild(this.renderer.domElement);
 
-    setView(view) {
-        switch(view) {
-            case 'top':
-                this.camera.position.set(0, 200, 0);
-                this.camera.up.set(0, 0, -1);
-                break;
-            case 'front':
-                this.camera.position.set(0, 0, 200);
-                this.camera.up.set(0, 1, 0);
-                break;
+            // Store references to objects we'll need to modify
+            this.model = null;
+            this.buildPlate = null;
+            this.boundingBox = null;
+            this.axesHelper = null;
+
+            // Initialize controls
+            this.setupControls();
+            this.setupBuildPlate();
+            this.setupLights();
+            this.setupEventListeners();
+            this.addGrid();
+            this.addAxes();
+
+            // Start animation
+            this.animate();
         }
-        this.camera.lookAt(0, 0, 0);
-        this.controls.update();
-    }
 
-    resetView() {
-        if (this.model) {
-            // Calculate the bounding sphere of the model
-            const bbox = new THREE.Box3().setFromObject(this.model);
-            const center = bbox.getCenter(new THREE.Vector3());
-            const size = bbox.getSize(new THREE.Vector3());
-            const maxDim = Math.max(size.x, size.y, size.z);
-            
-            // Position camera to see the entire model
-            this.camera.position.set(
-                center.x + maxDim * 1.5,
-                center.y + maxDim * 1.5,
-                center.z + maxDim * 1.5
-            );
-            this.camera.lookAt(center);
-            this.camera.up.set(0, 1, 0);
-        } else {
-            // Default position if no model is loaded
+        setupControls() {
+            this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+            this.controls.enableDamping = true;
+            this.controls.dampingFactor = 0.05;
+            this.controls.screenSpacePanning = true;
             this.camera.position.set(100, 100, 100);
             this.camera.lookAt(0, 0, 0);
-            this.camera.up.set(0, 1, 0);
         }
-        
-        this.controls.target.set(0, 0, 0);
-        this.controls.update();
-    }
+
+        setupLights() {
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            this.scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(1, 1, 1);
+            this.scene.add(directionalLight);
+        }
+
+        setupEventListeners() {
+            // View controls
+            document.getElementById('resetView').addEventListener('click', () => this.resetView());
+            document.getElementById('topView').addEventListener('click', () => this.setView('top'));
+            document.getElementById('frontView').addEventListener('click', () => this.setView('front'));
+
+            // Color control
+            document.getElementById('modelColor').addEventListener('input', (e) => {
+                if (this.model) {
+                    this.model.material.color.setStyle(e.target.value);
+                }
+            });
+
+            // Display options
+            document.getElementById('showBuildPlate').addEventListener('change', (e) => {
+                this.buildPlate.visible = e.target.checked;
+            });
+            document.getElementById('showBoundingBox').addEventListener('change', (e) => {
+                if (this.boundingBox) this.boundingBox.visible = e.target.checked;
+            });
+            document.getElementById('showAxes').addEventListener('change', (e) => {
+                if (this.axesHelper) this.axesHelper.visible = e.target.checked;
+            });
+
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                this.camera.aspect = this.container.clientWidth / this.container.clientHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+            });
+        }
+
+        setView(view) {
+            switch (view) {
+                case 'top':
+                    this.camera.position.set(0, 200, 0);
+                    this.camera.up.set(0, 0, -1);
+                    break;
+                case 'front':
+                    this.camera.position.set(0, 0, 200);
+                    this.camera.up.set(0, 1, 0);
+                    break;
+            }
+            this.camera.lookAt(0, 0, 0);
+            this.controls.update();
+        }
+
+        resetView() {
+            if (this.model) {
+                // Calculate the bounding sphere of the model
+                const bbox = new THREE.Box3().setFromObject(this.model);
+                const center = new THREE.Vector3(256 / 2, 128, 256 / 2); // Center of build volume
+                const size = bbox.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+
+                // Position camera to see the entire build volume
+                this.camera.position.set(
+                    center.x + maxDim * 1.5,
+                    center.y + maxDim * 1.5,
+                    center.z + maxDim * 1.5
+                );
+                this.camera.lookAt(center);
+                this.camera.up.set(0, 1, 0);
+
+                this.controls.target.copy(center);
+            } else {
+                // Default position if no model is loaded
+                const center = new THREE.Vector3(256 / 2, 128, 256 / 2);
+                this.camera.position.set(300, 300, 300);
+                this.camera.lookAt(center);
+                this.camera.up.set(0, 1, 0);
+                this.controls.target.copy(center);
+            }
+
+            this.controls.update();
+        }
 
         // Handle color changes
         setModelColor(color) {
-        if (this.model) {
-            this.model.material.color.setStyle(color);
-        }
-    }
-
-    addAxes() {
-    // Add axes helper
-    this.axesHelper = new THREE.AxesHelper(50);
-    this.scene.add(this.axesHelper);
-    }
-
-    addGrid() {
-        // Add grid helper
-        const size = 256; // Match build plate size
-        const divisions = 20;
-        const gridHelper = new THREE.GridHelper(size, divisions);
-        gridHelper.rotation.x = Math.PI / 2;
-        this.scene.add(gridHelper);
-    }
-
-    setupLights() {
-        // Add multiple lights for better visibility
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-        this.scene.add(ambientLight);
-
-        const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
-        directionalLight1.position.set(1, 1, 1);
-        this.scene.add(directionalLight1);
-
-        const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.5);
-        directionalLight2.position.set(-1, -1, -1);
-        this.scene.add(directionalLight2);
-    }
-
-    loadGCode(gcode) {
-        // Clear existing model if any
-        if (this.model) {
-            this.scene.remove(this.model);
-        }
-        if (this.boundingBox) {
-            this.scene.remove(this.boundingBox);
-        }
-
-        const { positions, minZ } = this.parseGCode(gcode);
-
-        // Create geometry from positions
-        const geometry = new THREE.BufferGeometry().setFromPoints(positions);
-        
-        // Create material with larger linewidth and initial color
-        const material = new THREE.LineBasicMaterial({
-            color: 0x00ff00, // Default green color
-            linewidth: 1 // Note: linewidth > 1 might not work in WebGL
-        });
-
-        // Create the model
-        this.model = new THREE.LineSegments(geometry, material);
-        
-        // Calculate bounding box before adding to scene
-        const bbox = new THREE.Box3().setFromPoints(positions);
-        const center = bbox.getCenter(new THREE.Vector3());
-        const dimensions = bbox.getSize(new THREE.Vector3());
-
-        // Center the model on the build plate
-        this.model.position.sub(center);
-        this.model.position.y -= minZ; // Align with build plate
-
-        // Add model to scene
-        this.scene.add(this.model);
-
-        // Add bounding box
-        this.boundingBox = new THREE.Box3Helper(bbox, 0xff0000);
-        this.scene.add(this.boundingBox);
-
-        // Update dimensions display
-        this.updateDimensionsDisplay(dimensions);
-
-        // Check if model fits build volume
-        this.checkBuildVolumeFit(dimensions);
-
-        // Reset view to show the entire model
-        this.resetView();
-    }
-
-    parseGCode(gcode) {
-        const lines = gcode.split('\n');
-        const positions = [];
-        let currentPosition = new THREE.Vector3(0, 0, 0);
-        let minZ = Infinity;
-
-        lines.forEach(line => {
-            if (line.startsWith(';')) return; // Skip comments
-
-            const parts = line.split(' ');
-            if (line.startsWith('G1') || line.startsWith('G0')) {
-                let newPosition = currentPosition.clone();
-                let hasMove = false;
-
-                parts.forEach(part => {
-                    if (part.startsWith('X')) {
-                        newPosition.x = parseFloat(part.substring(1));
-                        hasMove = true;
-                    }
-                    if (part.startsWith('Y')) {
-                        newPosition.y = parseFloat(part.substring(1));
-                        hasMove = true;
-                    }
-                    if (part.startsWith('Z')) {
-                        newPosition.z = parseFloat(part.substring(1));
-                        minZ = Math.min(minZ, newPosition.z);
-                        hasMove = true;
-                    }
-                });
-
-                if (hasMove) {
-                    positions.push(currentPosition.clone());
-                    positions.push(newPosition.clone());
-                    currentPosition = newPosition;
-                }
+            if (this.model) {
+                this.model.material.color.setStyle(color);
             }
-        });
+        }
 
-        return { positions, minZ: minZ === Infinity ? 0 : minZ };
-    }
+        addAxes() {
+            // Add axes helper
+            this.axesHelper = new THREE.AxesHelper(50);
+            this.scene.add(this.axesHelper);
+        }
 
-    checkBuildVolumeFit(dimensions) {
-        const buildVolume = { x: 256, y: 256, z: 256 }; // X1C build volume
-        const fits = dimensions.x <= buildVolume.x && 
-                    dimensions.y <= buildVolume.y && 
-                    dimensions.z <= buildVolume.z;
+        addGrid() {
+            // Add grid helper
+            const size = 256; // Match build plate size
+            const divisions = 20;
+            const gridHelper = new THREE.GridHelper(size, divisions);
+            gridHelper.rotation.x = -Math.PI / 2; // Rotate to match build plate
+            gridHelper.position.x = 256 / 2;
+            gridHelper.position.z = 256 / 2;
+            this.scene.add(gridHelper);
+        }
 
-        const warning = document.createElement('div');
-        warning.style.position = 'absolute';
-        warning.style.top = '50px';
-        warning.style.left = '10px';
-        warning.style.padding = '5px';
-        warning.style.borderRadius = '3px';
-        warning.style.backgroundColor = fits ? 'rgba(0, 255, 0, 0.8)' : 'rgba(255, 0, 0, 0.8)';
-        warning.style.color = 'white';
-        warning.textContent = fits ? 'Model fits build volume' : 'Warning: Model exceeds build volume!';
-        this.container.appendChild(warning);
-    }
+        setupLights() {
+            // Add multiple lights for better visibility
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            this.scene.add(ambientLight);
 
-    updateDimensionsDisplay(dimensions) {
-        const dimensionsDiv = document.createElement('div');
-        dimensionsDiv.style.position = 'absolute';
-        dimensionsDiv.style.top = '10px';
-        dimensionsDiv.style.left = '10px';
-        dimensionsDiv.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
-        dimensionsDiv.style.padding = '5px';
-        dimensionsDiv.style.borderRadius = '3px';
-        dimensionsDiv.innerHTML = `
+            const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight1.position.set(1, 1, 1);
+            this.scene.add(directionalLight1);
+
+            const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.5);
+            directionalLight2.position.set(-1, -1, -1);
+            this.scene.add(directionalLight2);
+        }
+
+        loadGCode(gcode) {
+            // Clear existing model if any
+            if (this.model) {
+                this.scene.remove(this.model);
+            }
+            if (this.boundingBox) {
+                this.scene.remove(this.boundingBox);
+            }
+
+            const { positions, minZ } = this.parseGCode(gcode);
+
+            // Create geometry from positions
+            const geometry = new THREE.BufferGeometry().setFromPoints(positions);
+
+            // Create material with larger linewidth and initial color
+            const material = new THREE.LineBasicMaterial({
+                color: 0x00ff00, // Default green color
+                linewidth: 1
+            });
+
+            // Create the model
+            this.model = new THREE.LineSegments(geometry, material);
+
+            // Calculate bounding box
+            const bbox = new THREE.Box3().setFromPoints(positions);
+            const dimensions = bbox.getSize(new THREE.Vector3());
+
+            // Place model at origin (bottom-left corner)
+            this.model.position.y = 0; // Place on build plate
+            this.model.position.x = 0;
+            this.model.position.z = 0;
+
+            // Add model to scene
+            this.scene.add(this.model);
+
+            // Create and position bounding box
+            const bboxGeometry = new THREE.BoxGeometry(
+                dimensions.x,
+                dimensions.y,
+                dimensions.z
+            );
+            const bboxMaterial = new THREE.LineBasicMaterial({
+                color: 0xff0000,
+                linewidth: 1
+            });
+            this.boundingBox = new THREE.LineSegments(
+                new THREE.EdgesGeometry(bboxGeometry),
+                bboxMaterial
+            );
+
+            // Position bounding box relative to model
+            this.boundingBox.position.set(
+                dimensions.x / 2,
+                dimensions.y / 2,
+                dimensions.z / 2
+            );
+
+            this.scene.add(this.boundingBox);
+
+            // Update dimensions display
+            this.updateDimensionsDisplay(dimensions);
+
+            // Check if model fits build volume
+            this.checkBuildVolumeFit(dimensions);
+
+            // Reset view to show the entire model
+            this.resetView();
+        }
+
+        parseGCode(gcode) {
+            const lines = gcode.split('\n');
+            const positions = [];
+            let currentPosition = new THREE.Vector3(0, 0, 0);
+            let minZ = Infinity;
+
+            lines.forEach(line => {
+                if (line.startsWith(';')) return; // Skip comments
+
+                const parts = line.split(' ');
+                if (line.startsWith('G1') || line.startsWith('G0')) {
+                    let newPosition = currentPosition.clone();
+                    let hasMove = false;
+
+                    parts.forEach(part => {
+                        if (part.startsWith('X')) {
+                            newPosition.x = parseFloat(part.substring(1));
+                            hasMove = true;
+                        }
+                        if (part.startsWith('Y')) {
+                            newPosition.z = parseFloat(part.substring(1));
+                            hasMove = true;
+                        }
+                        if (part.startsWith('Z')) {
+                            newPosition.y = parseFloat(part.substring(1));
+                            minZ = Math.min(minZ, newPosition.y);
+                            hasMove = true;
+                        }
+                    });
+
+                    if (hasMove) {
+                        positions.push(currentPosition.clone());
+                        positions.push(newPosition.clone());
+                        currentPosition = newPosition;
+                    }
+                }
+            });
+
+            return { positions, minZ: minZ === Infinity ? 0 : minZ };
+        }
+
+        setupBuildPlate() {
+            // Bambu Lab X1C build plate dimensions (256mm x 256mm)
+            const plateGeometry = new THREE.PlaneGeometry(256, 256);
+            const plateMaterial = new THREE.MeshPhongMaterial({
+                color: 0x808080,
+                transparent: true,
+                opacity: 0.5,
+                side: THREE.DoubleSide
+            });
+            this.buildPlate = new THREE.Mesh(plateGeometry, plateMaterial);
+            this.buildPlate.rotation.x = -Math.PI / 2; // Rotate back to horizontal
+            this.buildPlate.position.y = 0; // Place at origin
+
+            // Move build plate to corner
+            this.buildPlate.position.x = 256 / 2;
+            this.buildPlate.position.z = 256 / 2;
+
+            this.scene.add(this.buildPlate);
+
+            // Add build volume visualization
+            const edges = new THREE.EdgesGeometry(new THREE.BoxGeometry(256, 256, 256));
+            const buildVolume = new THREE.LineSegments(
+                edges,
+                new THREE.LineBasicMaterial({ color: 0x808080, transparent: true, opacity: 0.3 })
+            );
+            buildVolume.position.y = 256 / 2;
+            buildVolume.position.x = 256 / 2;
+            buildVolume.position.z = 256 / 2;
+            this.scene.add(buildVolume);
+        }
+
+        checkBuildVolumeFit(dimensions) {
+            const buildVolume = { x: 256, y: 256, z: 256 }; // X1C build volume
+            const fits = dimensions.x <= buildVolume.x &&
+                dimensions.y <= buildVolume.y &&
+                dimensions.z <= buildVolume.z;
+
+            const warning = document.createElement('div');
+            warning.style.position = 'absolute';
+            warning.style.top = '50px';
+            warning.style.left = '10px';
+            warning.style.padding = '5px';
+            warning.style.borderRadius = '3px';
+            warning.style.backgroundColor = fits ? 'rgba(0, 255, 0, 0.8)' : 'rgba(255, 0, 0, 0.8)';
+            warning.style.color = 'white';
+            warning.textContent = fits ? 'Model fits build volume' : 'Warning: Model exceeds build volume!';
+            this.container.appendChild(warning);
+        }
+
+        updateDimensionsDisplay(dimensions) {
+            const dimensionsDiv = document.createElement('div');
+            dimensionsDiv.style.position = 'absolute';
+            dimensionsDiv.style.top = '10px';
+            dimensionsDiv.style.left = '10px';
+            dimensionsDiv.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
+            dimensionsDiv.style.padding = '5px';
+            dimensionsDiv.style.borderRadius = '3px';
+            dimensionsDiv.innerHTML = `
             Dimensions:<br>
             X: ${dimensions.x.toFixed(1)}mm<br>
             Y: ${dimensions.y.toFixed(1)}mm<br>
             Z: ${dimensions.z.toFixed(1)}mm
         `;
-        this.container.appendChild(dimensionsDiv);
+            this.container.appendChild(dimensionsDiv);
+        }
+
+        animate() {
+            requestAnimationFrame(() => this.animate());
+            this.controls.update();
+            this.renderer.render(this.scene, this.camera);
+        }
     }
 
-    animate() {
-        requestAnimationFrame(() => this.animate());
-        this.controls.update();
-        this.renderer.render(this.scene, this.camera);
-    }
-}
 
-
-document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', function () {
         const viewer = new GCodeViewer('gcode-viewer');
 
         // Update the fetch URL to use the correct route
