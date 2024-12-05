@@ -122,6 +122,10 @@ def validate_password(password):
     return True
 
 
+def is_first_user():
+    return User.query.first() is None
+
+
 @login_manager.user_loader
 def load_user(user_id):
     return db.session.get(User, int(user_id))
@@ -140,6 +144,9 @@ def index():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
+    # Check if this is the first user
+    first_user = is_first_user()
+
     if request.method == "POST":
         username = request.form["username"]
         email = request.form["email"]
@@ -183,6 +190,7 @@ def register():
             email=email,
             id_number=id_number,
             password_hash=generate_password_hash(password),
+            is_admin=first_user,  # Make the first user an admin
         )
 
         db.session.add(user)
@@ -191,7 +199,7 @@ def register():
         flash("Registration successful! Please login.")
         return redirect(url_for("login"))
 
-    return render_template("register.html")
+    return render_template("register.html", first_user=first_user)
 
 
 @app.route("/login", methods=["GET", "POST"])

@@ -31,22 +31,9 @@ EXPOSE 5000
 ENV FLASK_APP=app.py
 ENV FLASK_ENV=production
 
-# Create initialization script
-RUN echo '#!/usr/bin/env python3\n\
-    import os\n\
-    from app import app, db\n\
-    \n\
-    def init_db():\n\
-    with app.app_context():\n\
-    db.create_all()\n\
-    \n\
-    if __name__ == "__main__":\n\
-    init_db()' > /app/init_db.py && \
-    chmod +x /app/init_db.py
-
 # Create entrypoint script
 RUN echo '#!/bin/bash\n\
-    python /app/init_db.py\n\
+    python -c "from app import app, db; app.app_context().push(); db.create_all()"\n\
     exec python -c "from app import app; app.run(host=\"0.0.0.0\", port=5000)"' > /app/entrypoint.sh && \
     chmod +x /app/entrypoint.sh
 
