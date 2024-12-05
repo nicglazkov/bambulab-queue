@@ -8,25 +8,140 @@
         <p class="text-gray-600">Submitted: {{ print_request.timestamp.strftime('%Y-%m-%d %H:%M') }}</p>
     </div>
 
+    {% for file in print_request.files %}
     <div class="mb-6">
-        <h3 class="text-xl font-bold mb-2">Print Information</h3>
-        <p>Estimated Time: {{ print_request.estimated_time }} minutes</p>
-        <p>Material Type: {{ print_request.material_type }}</p>
-        <p>Material Amount: {{ print_request.material_amount }}g</p>
-        <p>Layer Height: {{ print_request.layer_height }}mm</p>
-        {% if print_request.notes %}
-        <p>Notes: {{ print_request.notes }}</p>
+        <h3 class="text-xl font-bold mb-2">File: {{ file.filename }}</h3>
+        <p>Type: {{ file.file_type.upper() }}</p>
+
+        {% if file.file_type == 'gcode' %}
+        <div class="mt-4">
+            <h4 class="font-bold">Print Information</h4>
+            <p>Estimated Time: {{ print_request.estimated_time }} minutes</p>
+            <p>Material Type: {{ print_request.material_type }}</p>
+            <p>Material Amount: {{ print_request.material_amount }}g</p>
+            <p>Layer Height: {{ print_request.layer_height }}mm</p>
+        </div>
+
+        <div class="mb-4 p-4 bg-gray-100 rounded">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <!-- View Controls -->
+                <div>
+                    <h4 class="font-bold mb-2">View Controls</h4>
+                    <div class="space-y-2">
+                        <button id="resetView-{{ file.id }}"
+                            class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600">
+                            Reset View
+                        </button>
+                        <button id="topView-{{ file.id }}"
+                            class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600">
+                            Top View
+                        </button>
+                        <button id="frontView-{{ file.id }}"
+                            class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600">
+                            Front View
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Visualization Options -->
+                <div>
+                    <h4 class="font-bold mb-2">G-code Layers</h4>
+                    <div class="space-y-2">
+                        <label class="flex items-center">
+                            <input type="checkbox" id="showPrinting-{{ file.id }}" checked class="mr-2">
+                            Show Printing Moves
+                        </label>
+                        <label class="flex items-center">
+                            <input type="checkbox" id="showTravel-{{ file.id }}" checked class="mr-2">
+                            Show Travel Moves
+                        </label>
+                        <label class="flex items-center">
+                            <input type="checkbox" id="showRetraction-{{ file.id }}" checked class="mr-2">
+                            Show Retractions
+                        </label>
+                    </div>
+                    <div class="mt-4">
+                        <label class="block text-sm font-medium text-gray-700">Layer Range</label>
+                        <div class="flex items-center space-x-2 mt-1">
+                            <input type="range" id="layerSlider-{{ file.id }}" min="1" value="100" class="w-full">
+                            <span id="layerDisplay-{{ file.id }}" class="text-sm">All Layers</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Color Controls -->
+                <div>
+                    <h4 class="font-bold mb-2">Colors</h4>
+                    <div class="space-y-2">
+                        <div>
+                            <label class="block text-sm">Printing Moves</label>
+                            <input type="color" id="printingColor-{{ file.id }}" value="#00ff00" class="w-full h-8">
+                        </div>
+                        <div>
+                            <label class="block text-sm">Travel Moves</label>
+                            <input type="color" id="travelColor-{{ file.id }}" value="#ff0000" class="w-full h-8">
+                        </div>
+                        <div>
+                            <label class="block text-sm">Retractions</label>
+                            <input type="color" id="retractionColor-{{ file.id }}" value="#0000ff" class="w-full h-8">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Display Options -->
+                <div>
+                    <h4 class="font-bold mb-2">Display Options</h4>
+                    <div class="space-y-2">
+                        <label class="flex items-center">
+                            <input type="checkbox" id="showBuildPlate-{{ file.id }}" checked class="mr-2">
+                            Show Build Plate
+                        </label>
+                        <label class="flex items-center">
+                            <input type="checkbox" id="showBoundingBox-{{ file.id }}" checked class="mr-2">
+                            Show Bounding Box
+                        </label>
+                        <label class="flex items-center">
+                            <input type="checkbox" id="showAxes-{{ file.id }}" checked class="mr-2">
+                            Show Axes
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="mt-4">
+            <a href="{{ url_for('download_file', file_id=file.id) }}"
+                class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+                Download {{ file.file_type.upper() }}
+            </a>
+        </div>
+
+        <div class="mt-6">
+            <h4 class="font-bold mb-2">File Preview</h4>
+            <div id="file-viewer-{{ file.id }}" class="w-full h-[600px] border rounded"></div>
+        </div>
+
+        {% if file.file_type == 'gcode' %}
+        <div class="mt-6">
+            <h4 class="font-bold mb-2">GCode Preview</h4>
+            <pre class="bg-gray-100 p-4 rounded overflow-x-auto max-h-[400px]">{{ gcode_preview }}</pre>
+        </div>
         {% endif %}
     </div>
+    {% endfor %}
 
+    {% if print_request.notes %}
     <div class="mb-6">
-        <h3 class="text-xl font-bold mb-2">Actions</h3>
+        <h3 class="text-xl font-bold mb-2">Notes</h3>
+        <p>{{ print_request.notes }}</p>
+    </div>
+    {% endif %}
+
+    {% if current_user.is_admin and print_request.status == 'pending' %}
+    <div class="mb-6">
+        <h3 class="text-xl font-bold mb-2">Admin Actions</h3>
         <div class="space-x-4">
-            <a href="{{ url_for('download_gcode', request_id=print_request.id) }}"
-                class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
-                Download GCode
-            </a>
-            {% if current_user.is_admin and print_request.status == 'pending' %}
             <a href="{{ url_for('approve_print', request_id=print_request.id) }}"
                 class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
                 Approve
@@ -35,111 +150,26 @@
                 class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">
                 Deny
             </a>
-            {% endif %}
         </div>
     </div>
-
-    <div class="mb-4 p-4 bg-gray-100 rounded">
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <!-- View Controls (existing) -->
-            <div>
-                <h4 class="font-bold mb-2">View Controls</h4>
-                <div class="space-y-2">
-                    <button id="resetView" class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600">
-                        Reset View
-                    </button>
-                    <button id="topView" class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600">
-                        Top View
-                    </button>
-                    <button id="frontView" class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600">
-                        Front View
-                    </button>
-                </div>
-            </div>
-
-            <!-- Visualization Options (new) -->
-            <div>
-                <h4 class="font-bold mb-2">G-code Layers</h4>
-                <div class="space-y-2">
-                    <label class="flex items-center">
-                        <input type="checkbox" id="showPrinting" checked class="mr-2">
-                        Show Printing Moves
-                    </label>
-                    <label class="flex items-center">
-                        <input type="checkbox" id="showTravel" checked class="mr-2">
-                        Show Travel Moves
-                    </label>
-                    <label class="flex items-center">
-                        <input type="checkbox" id="showRetraction" checked class="mr-2">
-                        Show Retractions
-                    </label>
-                </div>
-                <div class="mt-4">
-                    <label class="block text-sm font-medium text-gray-700">Layer Range</label>
-                    <div class="flex items-center space-x-2 mt-1">
-                        <input type="range" id="layerSlider" min="1" value="100" class="w-full">
-                        <span id="layerDisplay" class="text-sm">All Layers</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Color Controls -->
-            <div>
-                <h4 class="font-bold mb-2">Colors</h4>
-                <div class="space-y-2">
-                    <div>
-                        <label class="block text-sm">Printing Moves</label>
-                        <input type="color" id="printingColor" value="#00ff00" class="w-full h-8">
-                    </div>
-                    <div>
-                        <label class="block text-sm">Travel Moves</label>
-                        <input type="color" id="travelColor" value="#ff0000" class="w-full h-8">
-                    </div>
-                    <div>
-                        <label class="block text-sm">Retractions</label>
-                        <input type="color" id="retractionColor" value="#0000ff" class="w-full h-8">
-                    </div>
-                </div>
-            </div>
-
-            <!-- Display Options (existing) -->
-            <div>
-                <h4 class="font-bold mb-2">Display Options</h4>
-                <div class="space-y-2">
-                    <label class="flex items-center">
-                        <input type="checkbox" id="showBuildPlate" checked class="mr-2">
-                        Show Build Plate
-                    </label>
-                    <label class="flex items-center">
-                        <input type="checkbox" id="showBoundingBox" checked class="mr-2">
-                        Show Bounding Box
-                    </label>
-                    <label class="flex items-center">
-                        <input type="checkbox" id="showAxes" checked class="mr-2">
-                        Show Axes
-                    </label>
-                </div>
-            </div>
-        </div>
-    </div>
-
-
-    <div class="mb-6">
-        <h3 class="text-xl font-bold mb-2">GCode Viewer</h3>
-        <div id="gcode-viewer" class="w-full h-[600px] border rounded"></div>
-    </div>
-
-    <!-- GCode preview as text -->
-    <div class="mb-6">
-        <h3 class="text-xl font-bold mb-2">GCode Preview</h3>
-        <pre class="bg-gray-100 p-4 rounded overflow-x-auto max-h-[400px]">{{ gcode_preview }}</pre>
-    </div>
+    {% endif %}
 </div>
 
-<!-- Include Three.js -->
+<!-- Three.js and required loaders -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<!-- Include OrbitControls -->
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+
+<style>
+    .file-viewer {
+        position: relative;
+        width: 100%;
+        height: 600px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        overflow: hidden;
+    }
+</style>
 
 <style>
     #gcode-viewer {
@@ -153,8 +183,99 @@
 </style>
 
 <script>
-    class GCodeViewer {
+    class BaseViewer {
         constructor(containerId) {
+            this.container = document.getElementById(containerId);
+            this.scene = new THREE.Scene();
+            this.camera = new THREE.PerspectiveCamera(75, this.container.clientWidth / this.container.clientHeight, 0.1, 1000);
+            this.renderer = new THREE.WebGLRenderer({
+                antialias: true,
+                alpha: true
+            });
+            this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+            this.renderer.setClearColor(0xf0f0f0);
+            this.container.appendChild(this.renderer.domElement);
+
+            this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+            this.setupBasicScene();
+            this.animate();
+        }
+
+        setupBasicScene() {
+            // Ambient light
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            this.scene.add(ambientLight);
+
+            // Directional lights
+            const mainLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            mainLight.position.set(1, 2, 1);
+            this.scene.add(mainLight);
+
+            const fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
+            fillLight.position.set(-1, 1, -1);
+            this.scene.add(fillLight);
+
+            this.camera.position.set(100, 100, 100);
+            this.camera.lookAt(0, 0, 0);
+        }
+
+        animate() {
+            requestAnimationFrame(() => this.animate());
+            this.controls.update();
+            this.renderer.render(this.scene, this.camera);
+        }
+
+        fitCameraToObject(object, offset = 1.5) {
+            const boundingBox = new THREE.Box3();
+            boundingBox.setFromObject(object);
+
+            const center = boundingBox.getCenter(new THREE.Vector3());
+            const size = boundingBox.getSize(new THREE.Vector3());
+
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const fov = this.camera.fov * (Math.PI / 180);
+            let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2)) * offset;
+
+            this.camera.position.z = cameraZ;
+            this.camera.lookAt(center);
+
+            this.controls.target.copy(center);
+            this.controls.update();
+        }
+    }
+
+    // STL viewer class
+    class STLViewer extends BaseViewer {
+        constructor(containerId) {
+            super(containerId);
+        }
+
+        loadSTL(content) {
+            const loader = new THREE.STLLoader();
+            const geometry = loader.parse(content);
+            const material = new THREE.MeshPhongMaterial({
+                color: 0x00ff00,
+                specular: 0x111111,
+                shininess: 200
+            });
+            const mesh = new THREE.Mesh(geometry, material);
+
+            // Center the model
+            geometry.computeBoundingBox();
+            const center = geometry.boundingBox.getCenter(new THREE.Vector3());
+            mesh.position.sub(center);
+
+            this.scene.add(mesh);
+            this.fitCameraToObject(mesh);
+        }
+    }
+
+
+
+    class GCodeViewer extends BaseViewer {
+        constructor(containerId, fileId) {
+            super(containerId);
+            this.fileId = fileId
             // Initialize basic Three.js setup
             this.container = document.getElementById(containerId);
             this.scene = new THREE.Scene();
@@ -224,23 +345,23 @@
 
         setupEventListeners() {
             // View controls
-            const resetViewBtn = document.getElementById('resetView');
+            const resetViewBtn = document.getElementById(`resetView-${this.fileId}`);
             if (resetViewBtn) {
                 resetViewBtn.addEventListener('click', () => this.resetView());
             }
 
-            const topViewBtn = document.getElementById('topView');
+            const topViewBtn = document.getElementById(`topView-${this.fileId}`);
             if (topViewBtn) {
                 topViewBtn.addEventListener('click', () => this.setView('top'));
             }
 
-            const frontViewBtn = document.getElementById('frontView');
+            const frontViewBtn = document.getElementById(`frontView-${this.fileId}`);
             if (frontViewBtn) {
                 frontViewBtn.addEventListener('click', () => this.setView('front'));
             }
 
             // Display options
-            const showBuildPlate = document.getElementById('showBuildPlate');
+            const showBuildPlate = document.getElementById(`showBuildPlate-${this.fileId}`);
             if (showBuildPlate) {
                 showBuildPlate.addEventListener('change', (e) => {
                     if (this.buildPlate) this.buildPlate.visible = e.target.checked;
@@ -665,21 +786,24 @@
         }
 
         updateLayerSlider() {
-            const slider = document.getElementById('layerSlider');
-            slider.max = this.maxLayer;
-            document.getElementById('layerDisplay').textContent = `Layer ${slider.value}/${this.maxLayer}`;
+            const slider = document.getElementById(`layerSlider-${this.fileId}`);
+            const display = document.getElementById(`layerDisplay-${this.fileId}`);
+            if (slider && display) {
+                slider.max = this.maxLayer;
+                display.textContent = `Layer ${slider.value}/${this.maxLayer}`;
+            }
         }
 
         updateVisibility() {
-            const showPrinting = document.getElementById('showPrinting')?.checked ?? true;
-            const showTravel = document.getElementById('showTravel')?.checked ?? true;
-            const showRetraction = document.getElementById('showRetraction')?.checked ?? true;
-            const currentLayer = parseInt(document.getElementById('layerSlider')?.value ?? this.maxLayer);
+            const showPrinting = document.getElementById(`showPrinting-${this.fileId}`)?.checked ?? true;
+            const showTravel = document.getElementById(`showTravel-${this.fileId}`)?.checked ?? true;
+            const showRetraction = document.getElementById(`showRetraction-${this.fileId}`)?.checked ?? true;
+            const currentLayer = parseInt(document.getElementById(`layerSlider-${this.fileId}`)?.value ?? this.maxLayer);
 
             // Get colors
-            const printingColor = new THREE.Color(document.getElementById('printingColor')?.value ?? '#00ff00');
-            const travelColor = new THREE.Color(document.getElementById('travelColor')?.value ?? '#ff0000');
-            const retractionColor = new THREE.Color(document.getElementById('retractionColor')?.value ?? '#0000ff');
+            const printingColor = new THREE.Color(document.getElementById(`printingColor-${this.fileId}`)?.value ?? '#00ff00');
+            const travelColor = new THREE.Color(document.getElementById(`travelColor-${this.fileId}`)?.value ?? '#ff0000');
+            const retractionColor = new THREE.Color(document.getElementById(`retractionColor-${this.fileId}`)?.value ?? '#0000ff');
 
             this.printingMoves.visible = showPrinting;
             this.travelMoves.visible = showTravel;
@@ -781,15 +905,38 @@
 
 
     document.addEventListener('DOMContentLoaded', function () {
-        const viewer = new GCodeViewer('gcode-viewer');
+        // Create an array of file data first
+        const files = [
+            {% for file in print_request.files %}
+            {
+            containerId: "file-viewer-{{ file.id }}",
+            fileType: "{{ file.file_type }}",
+            fileId: {{ file.id }},
+        contentUrl: "{{ url_for('get_file_content', file_id=file.id) }}"
+            }{% if not loop.last %}, {% endif %}
+    {% endfor %}
+    ];
 
-        // Update the fetch URL to use the correct route
-        fetch("{{ url_for('get_gcode', request_id=print_request.id) }}")
+    // Initialize viewers for each file
+    files.forEach(function (file) {
+        let viewer;
+        if (file.fileType === 'stl') {
+            viewer = new STLViewer(file.containerId);
+        } else {
+            viewer = new GCodeViewer(file.containerId, file.fileId);
+        }
+
+        fetch(file.contentUrl)
             .then(response => response.text())
-            .then(gcode => {
-                viewer.loadGCode(gcode);
+            .then(content => {
+                if (file.fileType === 'stl') {
+                    viewer.loadSTL(content);
+                } else {
+                    viewer.loadGCode(content);
+                }
             })
-            .catch(error => console.error('Error loading GCode:', error));
+            .catch(error => console.error('Error loading file:', error));
     });
+});
 </script>
 {% endblock %}

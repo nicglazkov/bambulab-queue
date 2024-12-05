@@ -27,7 +27,7 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = "your-secret-key-here"  # Change this to a secure secret key
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///print_requests.db"
 app.config["UPLOAD_FOLDER"] = "uploads"
-ALLOWED_EXTENSIONS = {"gcode"}
+ALLOWED_EXTENSIONS = {"stl", "gcode"}
 
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
@@ -48,18 +48,29 @@ class User(UserMixin, db.Model):
     print_requests = db.relationship("PrintRequest", backref="user", lazy=True)
 
 
-class PrintRequest(db.Model):
+class PrintFile(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     filename = db.Column(db.String(120), nullable=False)
     filepath = db.Column(db.String(200), nullable=False)
+    file_type = db.Column(db.String(10), nullable=False)  # 'stl' or 'gcode'
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    print_request_id = db.Column(
+        db.Integer, db.ForeignKey("print_request.id"), nullable=False
+    )
+
+
+class PrintRequest(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
     status = db.Column(db.String(20), default="pending")
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     notes = db.Column(db.Text)
-    estimated_time = db.Column(db.Integer)
-    material_type = db.Column(db.String(50))
-    material_amount = db.Column(db.Float)
-    layer_height = db.Column(db.Float)
+    files = db.relationship("PrintFile", backref="print_request", lazy=True)
+    # Only populated for gcode files
+    estimated_time = db.Column(db.Integer, nullable=True)
+    material_type = db.Column(db.String(50), nullable=True)
+    material_amount = db.Column(db.Float, nullable=True)
+    layer_height = db.Column(db.Float, nullable=True)
 
 
 def extract_gcode_info(filepath):
@@ -260,27 +271,33 @@ def submit_print():
             filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
             file.save(filepath)
 
-            # Extract gcode information
-            gcode_info = extract_gcode_info(filepath)
+            file_type = filename.rsplit(".", 1)[1].lower()
 
             print_request = PrintRequest(
-                filename=filename,
-                filepath=filepath,
-                user_id=current_user.id,
-                notes=request.form.get("notes", ""),
-                estimated_time=gcode_info["estimated_time"],
-                material_type=gcode_info["material_type"],
-                material_amount=gcode_info["material_amount"],
-                layer_height=gcode_info["layer_height"],
+                user_id=current_user.id, notes=request.form.get("notes", "")
             )
 
+            # Create the print file record
+            print_file = PrintFile(
+                filename=filename, filepath=filepath, file_type=file_type
+            )
+
+            # If it's a gcode file, extract additional information
+            if file_type == "gcode":
+                gcode_info = extract_gcode_info(filepath)
+                print_request.estimated_time = gcode_info["estimated_time"]
+                print_request.material_type = gcode_info["material_type"]
+                print_request.material_amount = gcode_info["material_amount"]
+                print_request.layer_height = gcode_info["layer_height"]
+
             db.session.add(print_request)
+            print_request.files.append(print_file)
             db.session.commit()
 
             flash("Print request submitted successfully")
             return redirect(url_for("dashboard"))
         else:
-            flash("Only .gcode files are allowed")
+            flash("Only .gcode and .stl files are allowed")
             return redirect(request.url)
 
     return render_template("submit.html")
@@ -312,6 +329,50 @@ def deny_print(request_id):
     db.session.commit()
     flash("Print request denied")
     return redirect(url_for("dashboard"))
+
+
+@app.route("/file/download/<int:file_id>")
+@login_required
+def download_file(file_id):
+    print_file = PrintFile.query.get_or_404(file_id)
+    print_request = print_file.print_request
+
+    if not current_user.is_admin and print_request.user_id != current_user.id:
+        flash("Unauthorized")
+        return redirect(url_for("dashboard"))
+
+    try:
+        return send_file(
+            print_file.filepath, as_attachment=True, download_name=print_file.filename
+        )
+    except Exception as e:
+        flash(f"Error downloading file: {str(e)}")
+        return redirect(url_for("view_request", request_id=print_request.id))
+
+
+@app.route("/file/content/<int:file_id>")
+@login_required
+def get_file_content(file_id):
+    print_file = PrintFile.query.get_or_404(file_id)
+    print_request = print_file.print_request
+
+    if not current_user.is_admin and print_request.user_id != current_user.id:
+        return "Unauthorized", 403
+
+    try:
+        with open(
+            print_file.filepath, "rb" if print_file.file_type == "stl" else "r"
+        ) as f:
+            content = f.read()
+            if print_file.file_type == "stl":
+                response = make_response(content)
+                response.headers["Content-Type"] = "application/octet-stream"
+            else:
+                response = make_response(content)
+                response.headers["Content-Type"] = "text/plain"
+            return response
+    except Exception as e:
+        return f"Error reading file: {str(e)}", 500
 
 
 @app.route("/gcode/download/<int:request_id>")
