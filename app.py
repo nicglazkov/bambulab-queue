@@ -41,8 +41,8 @@ if not os.path.exists(app.config["UPLOAD_FOLDER"]):
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    id_number = db.Column(db.String(20), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=True)  # Made nullable
+    id_number = db.Column(db.String(20), unique=True, nullable=True)  # Made nullable
     password_hash = db.Column(db.String(120), nullable=False)
     is_admin = db.Column(db.Boolean, default=False)
     print_requests = db.relationship("PrintRequest", backref="user", lazy=True)
@@ -144,13 +144,14 @@ def index():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
-    # Check if this is the first user
     first_user = is_first_user()
 
     if request.method == "POST":
         username = request.form["username"]
-        email = request.form["email"]
-        id_number = request.form["id_number"]
+        email = request.form.get("email")  # Using .get() to handle optional field
+        id_number = request.form.get(
+            "id_number"
+        )  # Using .get() to handle optional field
         password = request.form["password"]
         confirm_password = request.form["confirm_password"]
 
@@ -166,31 +167,32 @@ def register():
             )
             return redirect(url_for("register"))
 
-        # Validate email format
-        if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
-            flash("Invalid email format")
-            return redirect(url_for("register"))
-
-        # Check if username, email, or ID already exists
+        # Check if username exists
         if User.query.filter_by(username=username).first():
             flash("Username already exists")
             return redirect(url_for("register"))
 
-        if User.query.filter_by(email=email).first():
-            flash("Email already exists")
-            return redirect(url_for("register"))
+        # Only check email uniqueness if an email was provided
+        if email:
+            if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+                flash("Invalid email format")
+                return redirect(url_for("register"))
+            if User.query.filter_by(email=email).first():
+                flash("Email already exists")
+                return redirect(url_for("register"))
 
-        if User.query.filter_by(id_number=id_number).first():
+        # Only check ID number uniqueness if an ID was provided
+        if id_number and User.query.filter_by(id_number=id_number).first():
             flash("ID number already exists")
             return redirect(url_for("register"))
 
         # Create new user
         user = User(
             username=username,
-            email=email,
-            id_number=id_number,
+            email=email if email else None,  # Set to None if empty
+            id_number=id_number if id_number else None,  # Set to None if empty
             password_hash=generate_password_hash(password),
-            is_admin=first_user,  # Make the first user an admin
+            is_admin=first_user,
         )
 
         db.session.add(user)
@@ -205,12 +207,10 @@ def register():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        identifier = request.form["identifier"]
+        username = request.form["username"]
         password = request.form["password"]
 
-        user = User.query.filter(
-            (User.email == identifier) | (User.username == identifier)
-        ).first()
+        user = User.query.filter_by(username=username).first()
 
         if user and check_password_hash(user.password_hash, password):
             login_user(user)
