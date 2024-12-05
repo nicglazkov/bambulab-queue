@@ -134,3 +134,12 @@ __pycache__/app.cpython-312.pyc
 # uploads
 uploads/
 instance/print_requests.db
+
+__pycache__/
+*.pyc
+instance/
+uploads/
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
