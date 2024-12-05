@@ -40,8 +40,8 @@
     </div>
 
     <div class="mb-4 p-4 bg-gray-100 rounded">
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <!-- View Controls -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <!-- View Controls (existing) -->
             <div>
                 <h4 class="font-bold mb-2">View Controls</h4>
                 <div class="space-y-2">
@@ -57,13 +57,52 @@
                 </div>
             </div>
 
-            <!-- Color Controls -->
+            <!-- Visualization Options (new) -->
             <div>
-                <h4 class="font-bold mb-2">Model Color</h4>
-                <input type="color" id="modelColor" value="#00ff00" class="w-full h-10 cursor-pointer">
+                <h4 class="font-bold mb-2">G-code Layers</h4>
+                <div class="space-y-2">
+                    <label class="flex items-center">
+                        <input type="checkbox" id="showPrinting" checked class="mr-2">
+                        Show Printing Moves
+                    </label>
+                    <label class="flex items-center">
+                        <input type="checkbox" id="showTravel" checked class="mr-2">
+                        Show Travel Moves
+                    </label>
+                    <label class="flex items-center">
+                        <input type="checkbox" id="showRetraction" checked class="mr-2">
+                        Show Retractions
+                    </label>
+                </div>
+                <div class="mt-4">
+                    <label class="block text-sm font-medium text-gray-700">Layer Range</label>
+                    <div class="flex items-center space-x-2 mt-1">
+                        <input type="range" id="layerSlider" min="1" value="100" class="w-full">
+                        <span id="layerDisplay" class="text-sm">All Layers</span>
+                    </div>
+                </div>
             </div>
 
-            <!-- Display Options -->
+            <!-- Color Controls -->
+            <div>
+                <h4 class="font-bold mb-2">Colors</h4>
+                <div class="space-y-2">
+                    <div>
+                        <label class="block text-sm">Printing Moves</label>
+                        <input type="color" id="printingColor" value="#00ff00" class="w-full h-8">
+                    </div>
+                    <div>
+                        <label class="block text-sm">Travel Moves</label>
+                        <input type="color" id="travelColor" value="#ff0000" class="w-full h-8">
+                    </div>
+                    <div>
+                        <label class="block text-sm">Retractions</label>
+                        <input type="color" id="retractionColor" value="#0000ff" class="w-full h-8">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Display Options (existing) -->
             <div>
                 <h4 class="font-bold mb-2">Display Options</h4>
                 <div class="space-y-2">
@@ -83,6 +122,7 @@
             </div>
         </div>
     </div>
+
 
     <div class="mb-6">
         <h3 class="text-xl font-bold mb-2">GCode Viewer</h3>
@@ -115,6 +155,7 @@
 <script>
     class GCodeViewer {
         constructor(containerId) {
+            // Initialize basic Three.js setup
             this.container = document.getElementById(containerId);
             this.scene = new THREE.Scene();
             this.camera = new THREE.PerspectiveCamera(75, this.container.clientWidth / this.container.clientHeight, 0.1, 1000);
@@ -128,19 +169,32 @@
             this.renderer.setClearColor(0xf0f0f0);
             this.container.appendChild(this.renderer.domElement);
 
-            // Store references to objects we'll need to modify
+            // Initialize properties
             this.model = null;
             this.buildPlate = null;
             this.boundingBox = null;
             this.axesHelper = null;
+            this.layers = [];
+            this.currentLayer = 0;
+            this.maxLayer = 0;
 
-            // Initialize controls
+            // Initialize groups
+            this.printingMoves = new THREE.Group();
+            this.travelMoves = new THREE.Group();
+            this.retractions = new THREE.Group();
+            this.scene.add(this.printingMoves);
+            this.scene.add(this.travelMoves);
+            this.scene.add(this.retractions);
+
+            // Setup scene components
             this.setupControls();
             this.setupBuildPlate();
             this.setupLights();
-            this.setupEventListeners();
             this.addGrid();
             this.addAxes();
+
+            // Setup event listeners (only once)
+            this.setupEventListeners();
 
             // Start animation
             this.animate();
@@ -170,29 +224,88 @@
 
         setupEventListeners() {
             // View controls
-            document.getElementById('resetView').addEventListener('click', () => this.resetView());
-            document.getElementById('topView').addEventListener('click', () => this.setView('top'));
-            document.getElementById('frontView').addEventListener('click', () => this.setView('front'));
+            const resetViewBtn = document.getElementById('resetView');
+            if (resetViewBtn) {
+                resetViewBtn.addEventListener('click', () => this.resetView());
+            }
 
-            // Color control
-            document.getElementById('modelColor').addEventListener('input', (e) => {
-                if (this.model) {
-                    this.model.material.color.setStyle(e.target.value);
-                }
-            });
+            const topViewBtn = document.getElementById('topView');
+            if (topViewBtn) {
+                topViewBtn.addEventListener('click', () => this.setView('top'));
+            }
+
+            const frontViewBtn = document.getElementById('frontView');
+            if (frontViewBtn) {
+                frontViewBtn.addEventListener('click', () => this.setView('front'));
+            }
 
             // Display options
-            document.getElementById('showBuildPlate').addEventListener('change', (e) => {
-                this.buildPlate.visible = e.target.checked;
-            });
-            document.getElementById('showBoundingBox').addEventListener('change', (e) => {
-                if (this.boundingBox) this.boundingBox.visible = e.target.checked;
-            });
-            document.getElementById('showAxes').addEventListener('change', (e) => {
-                if (this.axesHelper) this.axesHelper.visible = e.target.checked;
-            });
+            const showBuildPlate = document.getElementById('showBuildPlate');
+            if (showBuildPlate) {
+                showBuildPlate.addEventListener('change', (e) => {
+                    if (this.buildPlate) this.buildPlate.visible = e.target.checked;
+                });
+            }
 
-            // Handle window resize
+            const showBoundingBox = document.getElementById('showBoundingBox');
+            if (showBoundingBox) {
+                showBoundingBox.addEventListener('change', (e) => {
+                    if (this.boundingBox) this.boundingBox.visible = e.target.checked;
+                });
+            }
+
+            const showAxes = document.getElementById('showAxes');
+            if (showAxes) {
+                showAxes.addEventListener('change', (e) => {
+                    if (this.axesHelper) this.axesHelper.visible = e.target.checked;
+                });
+            }
+
+            // Visualization options
+            const showPrinting = document.getElementById('showPrinting');
+            if (showPrinting) {
+                showPrinting.addEventListener('change', () => this.updateVisibility());
+            }
+
+            const showTravel = document.getElementById('showTravel');
+            if (showTravel) {
+                showTravel.addEventListener('change', () => this.updateVisibility());
+            }
+
+            const showRetraction = document.getElementById('showRetraction');
+            if (showRetraction) {
+                showRetraction.addEventListener('change', () => this.updateVisibility());
+            }
+
+            // Layer slider
+            const layerSlider = document.getElementById('layerSlider');
+            if (layerSlider) {
+                layerSlider.addEventListener('input', (e) => {
+                    const layerDisplay = document.getElementById('layerDisplay');
+                    if (layerDisplay) {
+                        layerDisplay.textContent = `Layer ${e.target.value}/${this.maxLayer}`;
+                    }
+                    this.updateVisibility();
+                });
+            }
+
+            // Color controls
+            const printingColor = document.getElementById('printingColor');
+            if (printingColor) {
+                printingColor.addEventListener('input', () => this.updateVisibility());
+            }
+
+            const travelColor = document.getElementById('travelColor');
+            if (travelColor) {
+                travelColor.addEventListener('input', () => this.updateVisibility());
+            }
+
+            const retractionColor = document.getElementById('retractionColor');
+            if (retractionColor) {
+                retractionColor.addEventListener('input', () => this.updateVisibility());
+            }
+
+            // Window resize
             window.addEventListener('resize', () => {
                 this.camera.aspect = this.container.clientWidth / this.container.clientHeight;
                 this.camera.updateProjectionMatrix();
@@ -396,59 +509,133 @@
         }
 
         parseGCode(gcode) {
-            const positions = [];
-            let currentPosition = new THREE.Vector3(0, 0, 0);
-            let minZ = Infinity;
-            let isPrinting = false;
-
             const lines = gcode.split('\n');
+            let currentPosition = new THREE.Vector3(0, 0, 0);
+            let currentLayer = 0;
+            let isRetracted = false;
+
+            this.layers = [];
+            this.printingMoves.clear();
+            this.travelMoves.clear();
+            this.retractions.clear();
+
+            const printingMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00 });
+            const travelMaterial = new THREE.LineBasicMaterial({
+                color: 0xff0000,
+                transparent: true,
+                opacity: 0.3
+            });
+            const retractionMaterial = new THREE.MeshBasicMaterial({ color: 0x0000ff });
+
             for (const line of lines) {
-                // Skip comments and empty lines
-                if (line.startsWith(';') || !line.trim()) {
-                    continue;
-                }
+                if (line.startsWith(';')) continue;
 
-                // Look for actual printing moves (G1/G0 with extrusion)
-                if ((line.startsWith('G0') || line.startsWith('G1'))) {
-                    const parts = line.split(' ');
-                    let newPosition = currentPosition.clone();
-                    let hasMove = false;
-                    let hasExtrusion = false;
+                const isMove = line.startsWith('G0') || line.startsWith('G1');
+                if (!isMove) continue;
 
-                    for (const part of parts) {
-                        if (part.startsWith('X')) {
-                            newPosition.x = parseFloat(part.substring(1));
-                            hasMove = true;
+                const parts = line.split(' ');
+                let newPosition = currentPosition.clone();
+                let hasMove = false;
+                let hasExtrusion = false;
+                let retraction = false;
+
+                for (const part of parts) {
+                    if (part.startsWith('X')) {
+                        newPosition.x = parseFloat(part.substring(1));
+                        hasMove = true;
+                    }
+                    if (part.startsWith('Y')) {
+                        newPosition.z = parseFloat(part.substring(1));
+                        hasMove = true;
+                    }
+                    if (part.startsWith('Z')) {
+                        newPosition.y = parseFloat(part.substring(1));
+                        hasMove = true;
+                        if (newPosition.y > currentPosition.y) {
+                            currentLayer++;
                         }
-                        if (part.startsWith('Y')) {
-                            newPosition.z = parseFloat(part.substring(1));
-                            hasMove = true;
-                        }
-                        if (part.startsWith('Z')) {
-                            newPosition.y = parseFloat(part.substring(1));
-                            minZ = Math.min(minZ, newPosition.y);
-                            hasMove = true;
-                        }
-                        if (part.startsWith('E') && parseFloat(part.substring(1)) > 0) {
+                    }
+                    if (part.startsWith('E')) {
+                        const e = parseFloat(part.substring(1));
+                        if (e < 0) {
+                            retraction = true;
+                        } else if (e > 0) {
                             hasExtrusion = true;
                         }
                     }
+                }
 
-                    // Only add positions for moves that involve extrusion
-                    if (hasMove && hasExtrusion) {
-                        positions.push(currentPosition.clone());
-                        positions.push(newPosition.clone());
-                        currentPosition = newPosition;
-                    } else if (hasMove && !hasExtrusion) {
-                        // For non-extrusion moves, just update position without adding to visualization
-                        currentPosition = newPosition;
+                if (hasMove) {
+                    const points = [currentPosition.clone(), newPosition.clone()];
+
+                    if (hasExtrusion) {
+                        // Printing move
+                        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                        const line = new THREE.Line(geometry, printingMaterial);
+                        this.printingMoves.add(line);
+                        line.userData.layer = currentLayer;
+                    } else {
+                        // Travel move
+                        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                        const line = new THREE.Line(geometry, travelMaterial);
+                        this.travelMoves.add(line);
+                        line.userData.layer = currentLayer;
                     }
+
+                    if (retraction) {
+                        // Add retraction marker
+                        const sphereGeometry = new THREE.SphereGeometry(0.5);
+                        const sphere = new THREE.Mesh(sphereGeometry, retractionMaterial);
+                        sphere.position.copy(currentPosition);
+                        this.retractions.add(sphere);
+                        sphere.userData.layer = currentLayer;
+                    }
+
+                    currentPosition = newPosition;
                 }
             }
 
-            return { positions, minZ: minZ === Infinity ? 0 : minZ };
+            this.maxLayer = currentLayer;
+            this.updateLayerSlider();
         }
 
+        updateLayerSlider() {
+            const slider = document.getElementById('layerSlider');
+            slider.max = this.maxLayer;
+            document.getElementById('layerDisplay').textContent = `Layer ${slider.value}/${this.maxLayer}`;
+        }
+
+        updateVisibility() {
+            const showPrinting = document.getElementById('showPrinting')?.checked ?? true;
+            const showTravel = document.getElementById('showTravel')?.checked ?? true;
+            const showRetraction = document.getElementById('showRetraction')?.checked ?? true;
+            const currentLayer = parseInt(document.getElementById('layerSlider')?.value ?? this.maxLayer);
+
+            // Get colors
+            const printingColor = new THREE.Color(document.getElementById('printingColor')?.value ?? '#00ff00');
+            const travelColor = new THREE.Color(document.getElementById('travelColor')?.value ?? '#ff0000');
+            const retractionColor = new THREE.Color(document.getElementById('retractionColor')?.value ?? '#0000ff');
+
+            this.printingMoves.visible = showPrinting;
+            this.travelMoves.visible = showTravel;
+            this.retractions.visible = showRetraction;
+
+            // Update materials
+            this.printingMoves.children.forEach(line => {
+                line.material.color = printingColor;
+                line.visible = line.userData.layer <= currentLayer;
+            });
+
+            this.travelMoves.children.forEach(line => {
+                line.material.color = travelColor;
+                line.visible = line.userData.layer <= currentLayer;
+            });
+
+            this.retractions.children.forEach(sphere => {
+                sphere.material.color = retractionColor;
+                sphere.visible = sphere.userData.layer <= currentLayer;
+            });
+        }
         setupBuildPlate() {
             // Bambu Lab X1C build plate dimensions (256mm x 256mm)
             const plateGeometry = new THREE.PlaneGeometry(256, 256);
