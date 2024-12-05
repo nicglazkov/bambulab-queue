@@ -408,16 +408,24 @@
             this.scene.add(mainLight);
 
             // Fill light
-            const fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
+            const fillLight = new THREE.DirectionalLight(0xffffff, 0.5);
             fillLight.position.set(-1, 1, -1);
             this.scene.add(fillLight);
 
             // Rim light
-            const rimLight = new THREE.DirectionalLight(0xffffff, 0.2);
+            const rimLight = new THREE.DirectionalLight(0xffffff, 0.3);
             rimLight.position.set(0, -1, 0);
             this.scene.add(rimLight);
-        }
 
+            // Add point lights for better detail visibility
+            const pointLight1 = new THREE.PointLight(0xffffff, 0.3);
+            pointLight1.position.set(100, 100, 100);
+            this.scene.add(pointLight1);
+
+            const pointLight2 = new THREE.PointLight(0xffffff, 0.3);
+            pointLight2.position.set(-100, 100, -100);
+            this.scene.add(pointLight2);
+        }
         setupEnvironment() {
             // Add this method to the class and call it from constructor
             const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
@@ -519,13 +527,31 @@
             this.travelMoves.clear();
             this.retractions.clear();
 
-            const printingMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00 });
+            // Create materials
+            const printingMaterial = new THREE.MeshStandardMaterial({
+                color: 0x00ff00,
+                metalness: 0.5,
+                roughness: 0.5,
+                flatShading: false
+            });
+
             const travelMaterial = new THREE.LineBasicMaterial({
                 color: 0xff0000,
                 transparent: true,
                 opacity: 0.3
             });
-            const retractionMaterial = new THREE.MeshBasicMaterial({ color: 0x0000ff });
+
+            const retractionMaterial = new THREE.MeshStandardMaterial({
+                color: 0x0000ff,
+                metalness: 0.5,
+                roughness: 0.5
+            });
+
+            // Store points for each layer
+            let layerPoints = [];
+            let lastLayerHeight = 0;
+            const layerHeight = 0.2; // Default layer height, adjust as needed
+            const extrusionWidth = 0.4; // Default extrusion width, adjust as needed
 
             for (const line of lines) {
                 if (line.startsWith(';')) continue;
@@ -551,7 +577,13 @@
                     if (part.startsWith('Z')) {
                         newPosition.y = parseFloat(part.substring(1));
                         hasMove = true;
-                        if (newPosition.y > currentPosition.y) {
+                        if (newPosition.y > lastLayerHeight + layerHeight / 2) {
+                            // New layer detected
+                            if (layerPoints.length > 1) {
+                                this.createLayerGeometry(layerPoints, currentLayer, printingMaterial, extrusionWidth);
+                            }
+                            layerPoints = [];
+                            lastLayerHeight = newPosition.y;
                             currentLayer++;
                         }
                     }
@@ -566,17 +598,16 @@
                 }
 
                 if (hasMove) {
-                    const points = [currentPosition.clone(), newPosition.clone()];
-
                     if (hasExtrusion) {
-                        // Printing move
-                        const geometry = new THREE.BufferGeometry().setFromPoints(points);
-                        const line = new THREE.Line(geometry, printingMaterial);
-                        this.printingMoves.add(line);
-                        line.userData.layer = currentLayer;
+                        // Store points for printing moves
+                        layerPoints.push(currentPosition.clone());
+                        layerPoints.push(newPosition.clone());
                     } else {
-                        // Travel move
-                        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                        // Create travel move
+                        const geometry = new THREE.BufferGeometry().setFromPoints([
+                            currentPosition.clone(),
+                            newPosition.clone()
+                        ]);
                         const line = new THREE.Line(geometry, travelMaterial);
                         this.travelMoves.add(line);
                         line.userData.layer = currentLayer;
@@ -584,7 +615,7 @@
 
                     if (retraction) {
                         // Add retraction marker
-                        const sphereGeometry = new THREE.SphereGeometry(0.5);
+                        const sphereGeometry = new THREE.SphereGeometry(0.2);
                         const sphere = new THREE.Mesh(sphereGeometry, retractionMaterial);
                         sphere.position.copy(currentPosition);
                         this.retractions.add(sphere);
@@ -595,8 +626,32 @@
                 }
             }
 
+            // Create geometry for the last layer
+            if (layerPoints.length > 1) {
+                this.createLayerGeometry(layerPoints, currentLayer, printingMaterial, extrusionWidth);
+            }
+
             this.maxLayer = currentLayer;
             this.updateLayerSlider();
+        }
+
+        // Add this new method to create volumetric geometry for each layer
+        createLayerGeometry(points, layer, material, extrusionWidth) {
+            if (points.length < 2) return;
+
+            // Create a path from the points
+            const curve = new THREE.CatmullRomCurve3(points);
+            const tubeGeometry = new THREE.TubeGeometry(
+                curve,
+                points.length * 2, // segments
+                extrusionWidth / 2, // radius
+                8, // radiusSegments
+                false // closed
+            );
+
+            const mesh = new THREE.Mesh(tubeGeometry, material.clone());
+            mesh.userData.layer = layer;
+            this.printingMoves.add(mesh);
         }
 
         updateLayerSlider() {
@@ -621,9 +676,9 @@
             this.retractions.visible = showRetraction;
 
             // Update materials
-            this.printingMoves.children.forEach(line => {
-                line.material.color = printingColor;
-                line.visible = line.userData.layer <= currentLayer;
+            this.printingMoves.children.forEach(mesh => {
+                mesh.material.color = printingColor;
+                mesh.visible = mesh.userData.layer <= currentLayer;
             });
 
             this.travelMoves.children.forEach(line => {
