@@ -520,7 +520,11 @@
             const lines = gcode.split('\n');
             let currentPosition = new THREE.Vector3(0, 0, 0);
             let currentLayer = 0;
+            let lastE = 0;  // Track last E position
             let isRetracted = false;
+            let lastLayerHeight = 0;
+            const layerHeight = 0.2;
+            const extrusionWidth = 0.4;
 
             this.layers = [];
             this.printingMoves.clear();
@@ -547,11 +551,15 @@
                 roughness: 0.5
             });
 
-            // Store points for each layer
-            let layerPoints = [];
-            let lastLayerHeight = 0;
-            const layerHeight = 0.2; // Default layer height, adjust as needed
-            const extrusionWidth = 0.4; // Default extrusion width, adjust as needed
+            let printingPoints = [];
+            let currentPrintLine = [];
+
+            function addPrintLine() {
+                if (currentPrintLine.length >= 2) {
+                    printingPoints.push([...currentPrintLine]);
+                }
+                currentPrintLine = [];
+            }
 
             for (const line of lines) {
                 if (line.startsWith(';')) continue;
@@ -562,8 +570,7 @@
                 const parts = line.split(' ');
                 let newPosition = currentPosition.clone();
                 let hasMove = false;
-                let hasExtrusion = false;
-                let retraction = false;
+                let e = null;
 
                 for (const part of parts) {
                     if (part.startsWith('X')) {
@@ -579,31 +586,33 @@
                         hasMove = true;
                         if (newPosition.y > lastLayerHeight + layerHeight / 2) {
                             // New layer detected
-                            if (layerPoints.length > 1) {
-                                this.createLayerGeometry(layerPoints, currentLayer, printingMaterial, extrusionWidth);
-                            }
-                            layerPoints = [];
+                            addPrintLine();
+                            printingPoints.forEach(points => {
+                                this.createLayerGeometry(points, currentLayer, printingMaterial, extrusionWidth);
+                            });
+                            printingPoints = [];
                             lastLayerHeight = newPosition.y;
                             currentLayer++;
                         }
                     }
                     if (part.startsWith('E')) {
-                        const e = parseFloat(part.substring(1));
-                        if (e < 0) {
-                            retraction = true;
-                        } else if (e > 0) {
-                            hasExtrusion = true;
-                        }
+                        e = parseFloat(part.substring(1));
                     }
                 }
 
                 if (hasMove) {
-                    if (hasExtrusion) {
-                        // Store points for printing moves
-                        layerPoints.push(currentPosition.clone());
-                        layerPoints.push(newPosition.clone());
+                    const isExtrusion = e !== null && e > lastE;
+                    const isRetraction = e !== null && e < lastE;
+
+                    if (isExtrusion && hasMove) {
+                        // This is a printing move
+                        if (currentPrintLine.length === 0) {
+                            currentPrintLine.push(currentPosition.clone());
+                        }
+                        currentPrintLine.push(newPosition.clone());
                     } else {
-                        // Create travel move
+                        // This is a travel move
+                        addPrintLine();  // End current print line if any
                         const geometry = new THREE.BufferGeometry().setFromPoints([
                             currentPosition.clone(),
                             newPosition.clone()
@@ -613,8 +622,7 @@
                         line.userData.layer = currentLayer;
                     }
 
-                    if (retraction) {
-                        // Add retraction marker
+                    if (isRetraction) {
                         const sphereGeometry = new THREE.SphereGeometry(0.2);
                         const sphere = new THREE.Mesh(sphereGeometry, retractionMaterial);
                         sphere.position.copy(currentPosition);
@@ -623,13 +631,15 @@
                     }
 
                     currentPosition = newPosition;
+                    if (e !== null) lastE = e;
                 }
             }
 
-            // Create geometry for the last layer
-            if (layerPoints.length > 1) {
-                this.createLayerGeometry(layerPoints, currentLayer, printingMaterial, extrusionWidth);
-            }
+            // Create geometry for any remaining printing moves
+            addPrintLine();
+            printingPoints.forEach(points => {
+                this.createLayerGeometry(points, currentLayer, printingMaterial, extrusionWidth);
+            });
 
             this.maxLayer = currentLayer;
             this.updateLayerSlider();
@@ -643,7 +653,7 @@
             const curve = new THREE.CatmullRomCurve3(points);
             const tubeGeometry = new THREE.TubeGeometry(
                 curve,
-                points.length * 2, // segments
+                Math.max(1, Math.floor(points.length * 2)), // segments
                 extrusionWidth / 2, // radius
                 8, // radiusSegments
                 false // closed

@@ -4,108 +4,114 @@ A web-based application for managing 3D print requests in a shared environment, 
 
 ## Features
 
-- **User Authentication System**
+### Print Management
 
-  - User registration with email verification
-  - Secure login system
-  - Role-based access control (Admin/User)
+- Submit G-code files for printing
+- Track print request status (pending, approved, denied)
+- View detailed print information including:
+  - Estimated print time
+  - Material type and amount
+  - Layer height
+  - Custom notes
 
-- **Print Request Management**
+### G-code Visualization
 
-  - Submit G-code files for printing
-  - Track print request status
-  - Add notes to print requests
-  - Automatic G-code analysis for print parameters
+- Interactive 3D preview of print files
+- Visualize different aspects of the print:
+  - Printing moves
+  - Travel moves
+  - Retractions
+- Layer-by-layer viewing
+- Build volume verification
+- Customizable colors for different move types
+- Multiple view angles (top, front, custom)
 
-- **Administrative Features**
+### User Management
 
-  - User management interface
-  - Print request approval/denial system
-  - User role management
-
-- **G-code Visualization**
-  - 3D preview of print files
-  - Build volume verification
-  - Print dimensions display
-  - Interactive model viewer
+- Simple user registration and login
+- Optional email and ID number fields
+- Admin user management interface
+- First user automatically becomes admin
+- Role-based access control
 
 ## Installation
 
-### Prerequisites
-
-- Python 3.12 or higher
-- pip package manager
-- SQLite3
-
-### Using Docker
-
-1. Build the Docker image:
-
-```bash
-docker build -t bambulab-queue .
-```
-
-2. Run the container:
-
-```bash
-docker run -d -p 5000:5000 -v uploads:/app/uploads -v instance:/app/instance bambulab-queue
-```
-
-### Manual Installation
+### Using Docker (Recommended)
 
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/bambulab-queue.git
+git clone https://github.com/nicglazkov/bambulab-queue.git
 cd bambulab-queue
 ```
 
-2. Create a virtual environment:
+2. Build and run with Docker:
 
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+docker build -t bambulab-queue .
+docker run -d -p 5000:5000 \
+  -v uploads:/app/uploads \
+  -v instance:/app/instance \
+  bambulab-queue
 ```
 
-3. Install dependencies:
+3. Access the application at `http://localhost:5000`
+
+### Manual Installation
+
+Prerequisites:
+
+- Python 3.12 or higher
+- pip package manager
+
+1. Clone the repository and install dependencies:
 
 ```bash
+git clone https://github.com/nicglazkov/bambulab-queue.git
+cd bambulab-queue
 pip install -r requirements.txt
 ```
 
-4. Initialize the database:
-
-```bash
-python scripts/init_db.py
-```
-
-5. Create an admin user:
-
-```bash
-flask create-admin
-```
-
-6. Run the application:
+2. Run the application:
 
 ```bash
 python app.py
 ```
 
-## Configuration
+3. Access the application at `http://localhost:5000`
 
-The application can be configured through environment variables:
+## Initial Setup
 
-- `FLASK_APP`: Set to `app.py`
-- `FLASK_ENV`: Set to `production` for deployment
-- `SECRET_KEY`: Set a secure secret key for session management
+1. Access the website for the first time
+2. Register a new user account
+   - The first user to register automatically becomes an administrator
+3. Subsequent users will be registered as regular users
+4. Administrators can manage users and approve print requests
 
 ## Usage
 
-1. Access the application at `http://localhost:5000`
-2. Register a new user account or log in
-3. Submit print requests through the web interface
-4. Administrators can approve or deny print requests
-5. Users can track their print request status
+### For Users
+
+1. Register an account
+2. Log in to your account
+3. Submit print requests:
+   - Upload G-code files
+   - Add notes to your request
+   - View request status
+4. View your print requests in the dashboard
+5. Download or preview your G-code files
+
+### For Administrators
+
+1. Log in to your admin account
+2. Manage print requests:
+   - View all submitted requests
+   - Approve or deny requests
+   - Download and preview G-code files
+3. Manage users:
+   - View all users
+   - Grant or revoke admin privileges
+   - Delete users
 
 ## Development
 
@@ -115,16 +121,28 @@ The application can be configured through environment variables:
 bambulab-queue/
 ├── app.py              # Main application file
 ├── templates/          # HTML templates
-├── scripts/           # Utility scripts
 ├── uploads/           # Upload directory for G-code files
-└── instance/          # Instance-specific files
+└── instance/          # Instance-specific files (database)
 ```
 
-### Dependencies
+### Key Dependencies
 
-Main dependencies include:
+- Flask - Web framework
+- Flask-SQLAlchemy - Database ORM
+- Flask-Login - User authentication
+- Three.js - 3D visualization
 
-- Flask
-- Flask-SQLAlchemy
-- Flask-Login
-- Three.js (for G-code visualization)
+## Configuration
+
+The application can be configured through environment variables:
+
+- `FLASK_APP`: Set to `app.py`
+- `FLASK_ENV`: Set to `production` for deployment
+- `SECRET_KEY`: Set a secure secret key for session management
+
+## Security Features
+
+- Password strength requirements
+- Secure file handling
+- Role-based access control
+- File type restrictions (G-code only)
